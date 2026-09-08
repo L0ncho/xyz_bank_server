@@ -2,12 +2,14 @@ package cl.duoc.xyzbank.bffweb.interestview.infrastructure.rest;
 
 import cl.duoc.xyzbank.bffweb.interestview.application.dto.InterestViewResponse;
 import cl.duoc.xyzbank.bffweb.interestview.application.usecases.InterestViewUseCase;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
+@PreAuthorize("hasRole('WEB')")
 public class InterestViewController {
 
     private final InterestViewUseCase interestViewUseCase;

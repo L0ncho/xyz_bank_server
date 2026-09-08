@@ -1,5 +1,6 @@
 package cl.duoc.xyzbank.bffweb.transactionhistory.e2e;
 
+import cl.duoc.xyzbank.sharedsecurity.jwt.infrastructure.Hs256JwtFactory;
 import com.github.tomakehurst.wiremock.WireMockServer;
 import com.github.tomakehurst.wiremock.client.ResponseDefinitionBuilder;
 import io.restassured.RestAssured;
@@ -64,8 +65,7 @@ class TransactionHistoryControllerE2ETest {
                         "{\"items\":[{\"id\":\"tx-1\",\"type\":\"DEBIT\",\"amount\":50.00,\"currency\":\"USD\",\"occurredOn\":\"2026-01-10\",\"description\":null}],\"nextCursor\":null}")));
 
         given()
-                .header("X-Customer-Id", "customer-1")
-                .header("X-Channel", "web")
+                .header("Authorization", "Bearer " + Hs256JwtFactory.devToken("customer-1", "web"))
                 .queryParam("from", "2026-01-01")
                 .queryParam("to", "2026-01-31")
                 .queryParam("type", "DEBIT")
@@ -82,8 +82,7 @@ class TransactionHistoryControllerE2ETest {
     @DisplayName("rejects an invalid date range")
     void rejectsAnInvalidDateRange() {
         given()
-                .header("X-Customer-Id", "customer-1")
-                .header("X-Channel", "web")
+                .header("Authorization", "Bearer " + Hs256JwtFactory.devToken("customer-1", "web"))
                 .queryParam("from", "2026-02-01")
                 .queryParam("to", "2026-01-01")
                 .when()
@@ -103,8 +102,7 @@ class TransactionHistoryControllerE2ETest {
                         .withBody("{\"detail\":\"Account unknown not found\"}")));
 
         given()
-                .header("X-Customer-Id", "customer-1")
-                .header("X-Channel", "web")
+                .header("Authorization", "Bearer " + Hs256JwtFactory.devToken("customer-1", "web"))
                 .when()
                 .get("/accounts/{accountId}/transactions", "unknown")
                 .then()

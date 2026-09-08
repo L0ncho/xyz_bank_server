@@ -4,15 +4,20 @@ import cl.duoc.xyzbank.bffweb.dashboard.application.dto.AccountBalance;
 import cl.duoc.xyzbank.bffweb.dashboard.application.dto.AccountSummary;
 import cl.duoc.xyzbank.bffweb.dashboard.application.dto.CustomerProfile;
 import cl.duoc.xyzbank.bffweb.dashboard.application.dto.DashboardResponse;
+import cl.duoc.xyzbank.bffweb.dashboard.application.dto.InterestSummary;
 import cl.duoc.xyzbank.bffweb.dashboard.application.dto.RecentTransaction;
 import cl.duoc.xyzbank.bffweb.dashboard.application.ports.AccountsPort;
 import cl.duoc.xyzbank.bffweb.dashboard.application.ports.CustomerProfilePort;
+import cl.duoc.xyzbank.bffweb.dashboard.application.ports.InterestPort;
 import cl.duoc.xyzbank.bffweb.dashboard.application.ports.TransactionsPort;
 import cl.duoc.xyzbank.bffweb.dashboard.application.usecases.DashboardUseCase;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
+import java.time.Clock;
+import java.time.Instant;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Map;
 
@@ -23,50 +28,51 @@ import static org.junit.jupiter.api.Assertions.fail;
 @DisplayName("The Dashboard use case")
 class DashboardUseCaseTest {
 
-    /*
-     * Cases:
-     * 1. Successful aggregate: profile, every account with balance, latest transactions per account
-     * 2. Customer with no accounts returns an empty accounts list and no transactions
-     * 3. Unknown customer propagates the profile port's failure without calling other ports
-     * 4. An accounts port failure propagates and returns no partial aggregate
-     * 5. A transactions port failure propagates and returns no partial aggregate
-     */
+    private static final Clock CLOCK = Clock.fixed(Instant.parse("2026-09-08T00:00:00Z"), ZoneOffset.UTC);
 
     @Test
-    @DisplayName("aggregates profile, accounts with balances, and each account's latest transactions")
-    void aggregatesProfileAccountsAndLatestTransactions() {
+    @DisplayName("aggregates profile, balances, latest transactions, and interest per account")
+    void aggregatesProfileBalancesHistoryAndInterest() {
         CustomerProfile profile = new CustomerProfile("customer-1", "Ana Perez", "ana@example.com");
         AccountBalance accountA = new AccountBalance("account-1", "1000000001", new BigDecimal("500.00"), "USD");
         AccountBalance accountB = new AccountBalance("account-2", "1000000002", new BigDecimal("900.00"), "USD");
         RecentTransaction txA = new RecentTransaction("tx-1", "DEBIT", new BigDecimal("50.00"), "USD", "2026-01-01", null);
         RecentTransaction txB = new RecentTransaction("tx-2", "CREDIT", new BigDecimal("200.00"), "USD", "2026-01-02", null);
+        InterestSummary interestA = interest("account-1");
+        InterestSummary interestB = interest("account-2");
 
         DashboardUseCase useCase = new DashboardUseCase(
                 new StubCustomerProfilePort(profile),
                 new StubAccountsPort(List.of(accountA, accountB)),
                 new StubTransactionsPort(Map.of(
                         "account-1", List.of(txA),
-                        "account-2", List.of(txB))));
+                        "account-2", List.of(txB))),
+                new StubInterestPort(Map.of("account-1", interestA, "account-2", interestB)),
+                CLOCK);
 
         DashboardResponse response = useCase.execute("customer-1");
 
         assertEquals(profile, response.profile());
         assertEquals(
                 List.of(
-                        new AccountSummary("account-1", "1000000001", new BigDecimal("500.00"), "USD", List.of(txA)),
-                        new AccountSummary("account-2", "1000000002", new BigDecimal("900.00"), "USD", List.of(txB))),
+                        new AccountSummary(
+                                "account-1", "1000000001", new BigDecimal("500.00"), "USD", List.of(txA), interestA),
+                        new AccountSummary(
+                                "account-2", "1000000002", new BigDecimal("900.00"), "USD", List.of(txB), interestB)),
                 response.accounts());
     }
 
     @Test
-    @DisplayName("returns an empty accounts list and no transactions for a customer with no accounts")
+    @DisplayName("returns an empty accounts list and does not fetch interest when there are no accounts")
     void returnsEmptyAccountsForACustomerWithNoAccounts() {
         CustomerProfile profile = new CustomerProfile("customer-2", "Jose Soto", "jose@example.com");
 
         DashboardUseCase useCase = new DashboardUseCase(
                 new StubCustomerProfilePort(profile),
                 new StubAccountsPort(List.of()),
-                new PoisonTransactionsPort());
+                new PoisonTransactionsPort(),
+                new PoisonInterestPort(),
+                CLOCK);
 
         DashboardResponse response = useCase.execute("customer-2");
 
@@ -82,7 +88,9 @@ class DashboardUseCaseTest {
                     throw new RuntimeException("Customer " + customerId + " not found");
                 },
                 new PoisonAccountsPort(),
-                new PoisonTransactionsPort());
+                new PoisonTransactionsPort(),
+                new PoisonInterestPort(),
+                CLOCK);
 
         assertThrows(RuntimeException.class, () -> useCase.execute("unknown-customer"));
     }
@@ -96,7 +104,9 @@ class DashboardUseCaseTest {
                 customerId -> {
                     throw new RuntimeException("core-service unreachable");
                 },
-                new PoisonTransactionsPort());
+                new PoisonTransactionsPort(),
+                new PoisonInterestPort(),
+                CLOCK);
 
         assertThrows(RuntimeException.class, () -> useCase.execute("customer-3"));
     }
@@ -111,9 +121,39 @@ class DashboardUseCaseTest {
                 new StubAccountsPort(List.of(account)),
                 (accountId, pageSize) -> {
                     throw new RuntimeException("core-service unreachable");
-                });
+                },
+                new PoisonInterestPort(),
+                CLOCK);
 
         assertThrows(RuntimeException.class, () -> useCase.execute("customer-4"));
+    }
+
+    @Test
+    @DisplayName("propagates an interest port failure with no partial aggregate")
+    void propagatesInterestPortFailure() {
+        CustomerProfile profile = new CustomerProfile("customer-5", "Eva Ruiz", "eva@example.com");
+        AccountBalance account = new AccountBalance("account-5", "1000000005", new BigDecimal("100.00"), "USD");
+        DashboardUseCase useCase = new DashboardUseCase(
+                new StubCustomerProfilePort(profile),
+                new StubAccountsPort(List.of(account)),
+                new StubTransactionsPort(Map.of("account-5", List.of())),
+                (accountId, year) -> {
+                    throw new RuntimeException("core-service unreachable");
+                },
+                CLOCK);
+
+        assertThrows(RuntimeException.class, () -> useCase.execute("customer-5"));
+    }
+
+    private static InterestSummary interest(String accountId) {
+        return new InterestSummary(
+                accountId,
+                2026,
+                new BigDecimal("1000.00"),
+                new BigDecimal("1100.00"),
+                new BigDecimal("0.05"),
+                new BigDecimal("50.00"),
+                "USD");
     }
 
     private record StubCustomerProfilePort(CustomerProfile profile) implements CustomerProfilePort {
@@ -138,6 +178,14 @@ class DashboardUseCaseTest {
         }
     }
 
+    private record StubInterestPort(Map<String, InterestSummary> interestByAccountId) implements InterestPort {
+        @Override
+        public InterestSummary fetchSummary(String accountId, String year) {
+            assertEquals("2026", year);
+            return interestByAccountId.get(accountId);
+        }
+    }
+
     private static final class PoisonAccountsPort implements AccountsPort {
         @Override
         public List<AccountBalance> fetchAccountsForCustomer(String customerId) {
@@ -149,6 +197,13 @@ class DashboardUseCaseTest {
         @Override
         public List<RecentTransaction> fetchLatestTransactions(String accountId, int pageSize) {
             return fail("transactions port should not be called");
+        }
+    }
+
+    private static final class PoisonInterestPort implements InterestPort {
+        @Override
+        public InterestSummary fetchSummary(String accountId, String year) {
+            return fail("interest port should not be called");
         }
     }
 }

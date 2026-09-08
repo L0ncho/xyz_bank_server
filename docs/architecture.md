@@ -4,7 +4,7 @@ XYZ Bank exposes three channel-specific backends for frontend (BFFs) in front of
 
 ## Current topology
 
-Caller identity is a **temporary** header adapter (`X-Customer-Id`, `X-Channel`, and ATM `X-Terminal-Id`) resolved in each BFF's `CallerContextInterceptor`. It is not authentication.
+Caller identity is a **JWT Bearer token** validated in `shared-security`. Claims map to `CallerContext` (`sub`, `channel`, ATM `terminalId`). Identity headers are not accepted.
 
 ```mermaid
 flowchart LR
@@ -14,7 +14,7 @@ flowchart LR
     AtmClient[ATM client]
   end
 
-  subgraph bffs [BFFs - header CallerContext temporary]
+  subgraph bffs [BFFs - JWT Bearer HTTPS]
     BffWeb[bff-web :8081]
     BffMobile[bff-mobile :8082]
     BffAtm[bff-atm :8083]

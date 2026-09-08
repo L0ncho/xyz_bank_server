@@ -1,5 +1,6 @@
 package cl.duoc.xyzbank.bffatm.balanceinquiry.e2e;
 
+import cl.duoc.xyzbank.sharedsecurity.jwt.infrastructure.Hs256JwtFactory;
 import com.github.tomakehurst.wiremock.WireMockServer;
 import io.restassured.RestAssured;
 import org.junit.jupiter.api.AfterAll;
@@ -17,6 +18,7 @@ import static com.github.tomakehurst.wiremock.client.WireMock.urlEqualTo;
 import static com.github.tomakehurst.wiremock.core.WireMockConfiguration.wireMockConfig;
 import static io.restassured.RestAssured.given;
 import static org.hamcrest.Matchers.equalTo;
+import static org.hamcrest.Matchers.nullValue;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @DisplayName("The Balance Inquiry controller")
@@ -57,23 +59,26 @@ class BalanceInquiryControllerE2ETest {
                         .withBody("{\"accountId\":\"account-1\",\"balance\":250.00,\"currency\":\"USD\"}")));
 
         given()
-                .header("X-Customer-Id", "customer-1")
-                .header("X-Channel", "atm")
+                .header("Authorization", "Bearer " + Hs256JwtFactory.devToken("customer-1", "atm", "terminal-1"))
                 .header("X-Terminal-Id", "terminal-1")
                 .when()
                 .get("/accounts/{accountId}/balance", "account-1")
                 .then()
                 .statusCode(200)
+                .body("accountId", equalTo("account-1"))
                 .body("balance", equalTo(250.00f))
-                .body("currency", equalTo("USD"));
+                .body("currency", equalTo("USD"))
+                .body("accountNumber", nullValue())
+                .body("transactions", nullValue())
+                .body("profile", nullValue())
+                .body("interest", nullValue());
     }
 
     @Test
     @DisplayName("rejects a caller whose channel is not atm")
     void rejectsACallerWhoseChannelIsNotAtm() {
         given()
-                .header("X-Customer-Id", "customer-1")
-                .header("X-Channel", "web")
+                .header("Authorization", "Bearer " + Hs256JwtFactory.devToken("customer-1", "web"))
                 .when()
                 .get("/accounts/{accountId}/balance", "account-1")
                 .then()
@@ -85,12 +90,36 @@ class BalanceInquiryControllerE2ETest {
     @DisplayName("rejects a missing terminal id")
     void rejectsAMissingTerminalId() {
         given()
-                .header("X-Customer-Id", "customer-1")
-                .header("X-Channel", "atm")
+                .header("Authorization", "Bearer " + Hs256JwtFactory.devToken("customer-1", "atm"))
                 .when()
                 .get("/accounts/{accountId}/balance", "account-1")
                 .then()
                 .statusCode(422)
+                .contentType("application/problem+json");
+    }
+
+    @Test
+    @DisplayName("rejects a terminal header that does not match the JWT claim")
+    void rejectsATerminalHeaderThatDoesNotMatchTheJwtClaim() {
+        given()
+                .header("Authorization", "Bearer " + Hs256JwtFactory.devToken("customer-1", "atm", "terminal-1"))
+                .header("X-Terminal-Id", "terminal-2")
+                .when()
+                .get("/accounts/{accountId}/balance", "account-1")
+                .then()
+                .statusCode(403)
+                .contentType("application/problem+json");
+    }
+
+    @Test
+    @DisplayName("rejects a missing terminal header even when the JWT has a terminal id")
+    void rejectsAMissingTerminalHeaderEvenWhenTheJwtHasATerminalId() {
+        given()
+                .header("Authorization", "Bearer " + Hs256JwtFactory.devToken("customer-1", "atm", "terminal-1"))
+                .when()
+                .get("/accounts/{accountId}/balance", "account-1")
+                .then()
+                .statusCode(403)
                 .contentType("application/problem+json");
     }
 }

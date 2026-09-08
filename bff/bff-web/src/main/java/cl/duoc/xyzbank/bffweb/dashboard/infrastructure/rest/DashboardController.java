@@ -2,6 +2,7 @@ package cl.duoc.xyzbank.bffweb.dashboard.infrastructure.rest;
 
 import cl.duoc.xyzbank.bffweb.dashboard.application.dto.DashboardResponse;
 import cl.duoc.xyzbank.bffweb.dashboard.application.usecases.DashboardUseCase;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -9,6 +10,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 @RestController
 @RequestMapping("/customers")
+@PreAuthorize("hasRole('WEB')")
 public class DashboardController {
 
     private final DashboardUseCase dashboardUseCase;

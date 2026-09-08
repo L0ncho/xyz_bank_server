@@ -1,5 +1,6 @@
 package cl.duoc.xyzbank.bffweb.interestview.e2e;
 
+import cl.duoc.xyzbank.sharedsecurity.jwt.infrastructure.Hs256JwtFactory;
 import com.github.tomakehurst.wiremock.WireMockServer;
 import io.restassured.RestAssured;
 import org.junit.jupiter.api.AfterAll;
@@ -64,8 +65,7 @@ class InterestViewControllerE2ETest {
                                 "{\"accountId\":\"account-1\",\"year\":2026,\"openingBalance\":1000.00,\"closingBalance\":1100.00,\"interestRate\":0.05,\"interestAmount\":50.00,\"currency\":\"USD\"}")));
 
         given()
-                .header("X-Customer-Id", "customer-1")
-                .header("X-Channel", "web")
+                .header("Authorization", "Bearer " + Hs256JwtFactory.devToken("customer-1", "web"))
                 .queryParam("year", "2026")
                 .when()
                 .get("/accounts/{accountId}/interest-summary", "account-1")
@@ -81,8 +81,7 @@ class InterestViewControllerE2ETest {
     @DisplayName("rejects a missing year query parameter")
     void rejectsAMissingYearQueryParameter() {
         given()
-                .header("X-Customer-Id", "customer-1")
-                .header("X-Channel", "web")
+                .header("Authorization", "Bearer " + Hs256JwtFactory.devToken("customer-1", "web"))
                 .when()
                 .get("/accounts/{accountId}/interest-summary", "account-1")
                 .then()

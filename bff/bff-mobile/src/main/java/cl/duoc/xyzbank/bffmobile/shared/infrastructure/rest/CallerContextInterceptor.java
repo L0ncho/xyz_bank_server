@@ -3,7 +3,7 @@ package cl.duoc.xyzbank.bffmobile.shared.infrastructure.rest;
 import cl.duoc.xyzbank.sharedsecurity.callercontext.CallerContext;
 import cl.duoc.xyzbank.sharedsecurity.callercontext.CallerIdentityException;
 import cl.duoc.xyzbank.sharedsecurity.callercontext.Channel;
-import cl.duoc.xyzbank.sharedsecurity.callercontext.HeaderCallerContextAdapter;
+import cl.duoc.xyzbank.sharedsecurity.callercontext.SecurityCallerContexts;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.stereotype.Component;
@@ -18,10 +18,7 @@ public class CallerContextInterceptor implements HandlerInterceptor {
         if (!(handler instanceof HandlerMethod)) {
             return true;
         }
-        CallerContext callerContext = HeaderCallerContextAdapter.resolve(
-                request.getHeader("X-Customer-Id"),
-                request.getHeader("X-Channel"),
-                request.getHeader("X-Terminal-Id"));
+        CallerContext callerContext = SecurityCallerContexts.requireAuthenticated();
         if (callerContext.channel() != Channel.MOBILE) {
             throw CallerIdentityException.forbidden("This endpoint requires the mobile channel");
         }

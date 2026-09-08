@@ -1,5 +1,6 @@
 package cl.duoc.xyzbank.bffmobile.accountsummary.e2e;
 
+import cl.duoc.xyzbank.sharedsecurity.jwt.infrastructure.Hs256JwtFactory;
 import com.github.tomakehurst.wiremock.WireMockServer;
 import com.github.tomakehurst.wiremock.client.WireMock;
 import io.restassured.RestAssured;
@@ -20,7 +21,6 @@ import static com.github.tomakehurst.wiremock.core.WireMockConfiguration.wireMoc
 import static io.restassured.RestAssured.given;
 import static org.hamcrest.Matchers.emptyOrNullString;
 import static org.hamcrest.Matchers.equalTo;
-import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.not;
 import static org.hamcrest.Matchers.nullValue;
 
@@ -55,19 +55,18 @@ class AccountSummaryControllerE2ETest {
     }
 
     @Test
-    @DisplayName("returns a flattened account summary")
-    void returnsAFlattenedAccountSummary() {
+    @DisplayName("returns a flat account summary without transaction history")
+    void returnsAFlatAccountSummaryWithoutTransactionHistory() {
         given()
-                .header("X-Customer-Id", "customer-1")
-                .header("X-Channel", "mobile")
+                .header("Authorization", "Bearer " + Hs256JwtFactory.devToken("customer-1", "mobile"))
                 .when()
                 .get("/accounts/{accountId}/summary", "account-1")
                 .then()
                 .statusCode(200)
+                .body("accountId", equalTo("account-1"))
                 .body("balance", equalTo(500.00f))
                 .body("currency", equalTo("USD"))
-                .body("transactions", hasSize(1))
-                .body("transactions[0].id", equalTo("tx-1"))
+                .body("transactions", nullValue())
                 .body("profile", nullValue())
                 .body("nextCursor", nullValue());
     }
@@ -83,8 +82,7 @@ class AccountSummaryControllerE2ETest {
                         .withBody("{\"detail\":\"Account unknown not found\"}")));
 
         given()
-                .header("X-Customer-Id", "customer-1")
-                .header("X-Channel", "mobile")
+                .header("Authorization", "Bearer " + Hs256JwtFactory.devToken("customer-1", "mobile"))
                 .when()
                 .get("/accounts/{accountId}/summary", "unknown")
                 .then()
@@ -96,8 +94,7 @@ class AccountSummaryControllerE2ETest {
     @DisplayName("rejects a caller whose channel is not mobile")
     void rejectsACallerWhoseChannelIsNotMobile() {
         given()
-                .header("X-Customer-Id", "customer-1")
-                .header("X-Channel", "web")
+                .header("Authorization", "Bearer " + Hs256JwtFactory.devToken("customer-1", "web"))
                 .when()
                 .get("/accounts/{accountId}/summary", "account-1")
                 .then()
@@ -109,8 +106,7 @@ class AccountSummaryControllerE2ETest {
     @DisplayName("ignores filter and pagination query parameters")
     void ignoresFilterAndPaginationQueryParameters() {
         given()
-                .header("X-Customer-Id", "customer-1")
-                .header("X-Channel", "mobile")
+                .header("Authorization", "Bearer " + Hs256JwtFactory.devToken("customer-1", "mobile"))
                 .queryParam("from", "2020-01-01")
                 .queryParam("to", "2026-12-31")
                 .queryParam("type", "CREDIT")
@@ -120,7 +116,8 @@ class AccountSummaryControllerE2ETest {
                 .get("/accounts/{accountId}/summary", "account-1")
                 .then()
                 .statusCode(200)
-                .body("transactions", hasSize(1))
+                .body("accountId", equalTo("account-1"))
+                .body("transactions", nullValue())
                 .body("nextCursor", nullValue());
     }
 
@@ -128,8 +125,7 @@ class AccountSummaryControllerE2ETest {
     @DisplayName("propagates the correlation id to core-service")
     void propagatesTheCorrelationIdToCoreService() {
         given()
-                .header("X-Customer-Id", "customer-1")
-                .header("X-Channel", "mobile")
+                .header("Authorization", "Bearer " + Hs256JwtFactory.devToken("customer-1", "mobile"))
                 .header("X-Correlation-Id", "corr-mobile-1")
                 .when()
                 .get("/accounts/{accountId}/summary", "account-1")
@@ -139,16 +135,14 @@ class AccountSummaryControllerE2ETest {
 
         CORE_SERVICE.verify(getRequestedFor(urlEqualTo("/internal/accounts/account-1/balance"))
                 .withHeader("X-Correlation-Id", WireMock.equalTo("corr-mobile-1")));
-        CORE_SERVICE.verify(getRequestedFor(urlEqualTo("/internal/accounts/account-1/transactions?pageSize=5"))
-                .withHeader("X-Correlation-Id", WireMock.equalTo("corr-mobile-1")));
+        CORE_SERVICE.verify(0, getRequestedFor(urlEqualTo("/internal/accounts/account-1/transactions?pageSize=5")));
     }
 
     @Test
     @DisplayName("propagates a generated correlation id when the inbound header is absent")
     void propagatesAGeneratedCorrelationIdWhenTheInboundHeaderIsAbsent() {
         String correlationId = given()
-                .header("X-Customer-Id", "customer-1")
-                .header("X-Channel", "mobile")
+                .header("Authorization", "Bearer " + Hs256JwtFactory.devToken("customer-1", "mobile"))
                 .when()
                 .get("/accounts/{accountId}/summary", "account-1")
                 .then()
@@ -159,8 +153,7 @@ class AccountSummaryControllerE2ETest {
 
         CORE_SERVICE.verify(getRequestedFor(urlEqualTo("/internal/accounts/account-1/balance"))
                 .withHeader("X-Correlation-Id", WireMock.equalTo(correlationId)));
-        CORE_SERVICE.verify(getRequestedFor(urlEqualTo("/internal/accounts/account-1/transactions?pageSize=5"))
-                .withHeader("X-Correlation-Id", WireMock.equalTo(correlationId)));
+        CORE_SERVICE.verify(0, getRequestedFor(urlEqualTo("/internal/accounts/account-1/transactions?pageSize=5")));
     }
 
     private static void stubSummary() {
@@ -169,11 +162,5 @@ class AccountSummaryControllerE2ETest {
                         .withStatus(200)
                         .withHeader("Content-Type", "application/json")
                         .withBody("{\"accountId\":\"account-1\",\"balance\":500.00,\"currency\":\"USD\"}")));
-        CORE_SERVICE.stubFor(get(urlEqualTo("/internal/accounts/account-1/transactions?pageSize=5"))
-                .willReturn(aResponse()
-                        .withStatus(200)
-                        .withHeader("Content-Type", "application/json")
-                        .withBody(
-                                "{\"items\":[{\"id\":\"tx-1\",\"type\":\"DEBIT\",\"amount\":50.00,\"currency\":\"USD\",\"occurredOn\":\"2026-01-01\",\"description\":null}],\"nextCursor\":null}")));
     }
 }

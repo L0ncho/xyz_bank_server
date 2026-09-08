@@ -19,7 +19,7 @@ paths:
         - $ref: '#/components/parameters/XChannel'
       responses:
         '200':
-          description: Profile, every account with balance, and latest transactions per account
+          description: Profile, every account with balance, latest transactions, and annual interest
           content:
             application/json:
               schema:
@@ -169,7 +169,7 @@ components:
           type: string
     AccountSummary:
       type: object
-      required: [id, accountNumber, balance, currency, transactions]
+      required: [id, accountNumber, balance, currency, transactions, interest]
       properties:
         id:
           type: string
@@ -183,6 +183,8 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/RecentTransaction'
+        interest:
+          $ref: '#/components/schemas/InterestViewResponse'
     RecentTransaction:
       type: object
       required: [id, type, amount, currency, occurredOn]

@@ -2,11 +2,13 @@ package cl.duoc.xyzbank.bffmobile.accountsummary.infrastructure.rest;
 
 import cl.duoc.xyzbank.bffmobile.accountsummary.application.dto.AccountSummaryResponse;
 import cl.duoc.xyzbank.bffmobile.accountsummary.application.usecases.AccountSummaryUseCase;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
+@PreAuthorize("hasRole('MOBILE')")
 public class AccountSummaryController {
 
     private final AccountSummaryUseCase accountSummaryUseCase;

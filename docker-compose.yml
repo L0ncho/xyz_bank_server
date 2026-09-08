@@ -89,7 +89,7 @@ services:
     environment:
       CORE_SERVICE_BASE_URL: http://core-service:8080
     healthcheck:
-      test: ["CMD", "sh", "-c", "wget -qO- http://127.0.0.1:8081/actuator/health | grep -q UP"]
+      test: ["CMD", "sh", "-c", "wget --no-check-certificate -qO- https://127.0.0.1:8081/actuator/health | grep -q UP"]
       interval: 10s
       timeout: 5s
       retries: 20
@@ -108,7 +108,7 @@ services:
     environment:
       CORE_SERVICE_BASE_URL: http://core-service:8080
     healthcheck:
-      test: ["CMD", "sh", "-c", "wget -qO- http://127.0.0.1:8082/actuator/health | grep -q UP"]
+      test: ["CMD", "sh", "-c", "wget --no-check-certificate -qO- https://127.0.0.1:8082/actuator/health | grep -q UP"]
       interval: 10s
       timeout: 5s
       retries: 20
@@ -127,7 +127,7 @@ services:
     environment:
       CORE_SERVICE_BASE_URL: http://core-service:8080
     healthcheck:
-      test: ["CMD", "sh", "-c", "wget -qO- http://127.0.0.1:8083/actuator/health | grep -q UP"]
+      test: ["CMD", "sh", "-c", "wget --no-check-certificate -qO- https://127.0.0.1:8083/actuator/health | grep -q UP"]
       interval: 10s
       timeout: 5s
       retries: 20

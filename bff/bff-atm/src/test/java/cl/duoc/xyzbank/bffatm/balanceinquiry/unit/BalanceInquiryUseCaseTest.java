@@ -17,7 +17,7 @@ class BalanceInquiryUseCaseTest {
     @Test
     @DisplayName("returns the account balance and currency")
     void returnsTheAccountBalanceAndCurrency() {
-        BalanceResponse expected = new BalanceResponse(new BigDecimal("250.00"), "USD");
+        BalanceResponse expected = new BalanceResponse("account-1", new BigDecimal("250.00"), "USD");
         BalanceInquiryUseCase useCase = new BalanceInquiryUseCase(accountId -> expected);
 
         assertEquals(expected, useCase.execute("account-1"));

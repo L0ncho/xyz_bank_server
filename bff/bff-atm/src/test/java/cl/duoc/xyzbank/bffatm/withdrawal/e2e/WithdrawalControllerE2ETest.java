@@ -1,5 +1,6 @@
 package cl.duoc.xyzbank.bffatm.withdrawal.e2e;
 
+import cl.duoc.xyzbank.sharedsecurity.jwt.infrastructure.Hs256JwtFactory;
 import com.github.tomakehurst.wiremock.WireMockServer;
 import com.github.tomakehurst.wiremock.client.WireMock;
 import io.restassured.RestAssured;
@@ -63,8 +64,7 @@ class WithdrawalControllerE2ETest {
                                 "{\"transactionId\":\"tx-1\",\"accountId\":\"account-1\",\"amount\":40.00,\"currency\":\"USD\",\"occurredOn\":\"2026-01-01\",\"newBalance\":210.00}")));
 
         given()
-                .header("X-Customer-Id", "customer-1")
-                .header("X-Channel", "atm")
+                .header("Authorization", "Bearer " + Hs256JwtFactory.devToken("customer-1", "atm", "terminal-1"))
                 .header("X-Terminal-Id", "terminal-1")
                 .header("Idempotency-Key", "key-1")
                 .contentType(MediaType.APPLICATION_JSON_VALUE)
@@ -81,8 +81,7 @@ class WithdrawalControllerE2ETest {
     @DisplayName("rejects a missing idempotency key")
     void rejectsAMissingIdempotencyKey() {
         given()
-                .header("X-Customer-Id", "customer-1")
-                .header("X-Channel", "atm")
+                .header("Authorization", "Bearer " + Hs256JwtFactory.devToken("customer-1", "atm", "terminal-1"))
                 .header("X-Terminal-Id", "terminal-1")
                 .contentType(MediaType.APPLICATION_JSON_VALUE)
                 .body("{\"amount\":40.00,\"currency\":\"USD\"}")
@@ -103,8 +102,7 @@ class WithdrawalControllerE2ETest {
                         .withBody("{\"detail\":\"Conflict\"}")));
 
         given()
-                .header("X-Customer-Id", "customer-1")
-                .header("X-Channel", "atm")
+                .header("Authorization", "Bearer " + Hs256JwtFactory.devToken("customer-1", "atm", "terminal-1"))
                 .header("X-Terminal-Id", "terminal-1")
                 .header("Idempotency-Key", "key-1")
                 .contentType(MediaType.APPLICATION_JSON_VALUE)
@@ -127,8 +125,7 @@ class WithdrawalControllerE2ETest {
                                 "{\"transactionId\":\"tx-1\",\"accountId\":\"account-1\",\"amount\":40.00,\"currency\":\"USD\",\"occurredOn\":\"2026-01-01\",\"newBalance\":210.00}")));
 
         String correlationId = given()
-                .header("X-Customer-Id", "customer-1")
-                .header("X-Channel", "atm")
+                .header("Authorization", "Bearer " + Hs256JwtFactory.devToken("customer-1", "atm", "terminal-1"))
                 .header("X-Terminal-Id", "terminal-1")
                 .header("Idempotency-Key", "key-1")
                 .contentType(MediaType.APPLICATION_JSON_VALUE)

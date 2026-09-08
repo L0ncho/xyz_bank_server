@@ -2,11 +2,13 @@ package cl.duoc.xyzbank.bffatm.balanceinquiry.infrastructure.rest;
 
 import cl.duoc.xyzbank.bffatm.balanceinquiry.application.dto.BalanceResponse;
 import cl.duoc.xyzbank.bffatm.balanceinquiry.application.usecases.BalanceInquiryUseCase;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
+@PreAuthorize("hasRole('ATM')")
 public class BalanceController {
 
     private final BalanceInquiryUseCase balanceInquiryUseCase;

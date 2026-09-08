@@ -23,7 +23,7 @@ public class HttpAccountsAdapter implements AccountsPort {
                 .uri("/internal/accounts/{accountId}/balance", accountId)
                 .retrieve()
                 .body(BalanceWire.class));
-        return new BalanceResponse(wire.balance(), wire.currency());
+        return new BalanceResponse(accountId, wire.balance(), wire.currency());
     }
 
     private record BalanceWire(String accountId, BigDecimal balance, String currency) {

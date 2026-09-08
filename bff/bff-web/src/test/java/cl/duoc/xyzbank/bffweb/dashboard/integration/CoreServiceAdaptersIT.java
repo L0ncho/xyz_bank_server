@@ -2,9 +2,11 @@ package cl.duoc.xyzbank.bffweb.dashboard.integration;
 
 import cl.duoc.xyzbank.bffweb.dashboard.application.dto.AccountBalance;
 import cl.duoc.xyzbank.bffweb.dashboard.application.dto.CustomerProfile;
+import cl.duoc.xyzbank.bffweb.dashboard.application.dto.InterestSummary;
 import cl.duoc.xyzbank.bffweb.dashboard.application.dto.RecentTransaction;
 import cl.duoc.xyzbank.bffweb.dashboard.infrastructure.adapters.HttpAccountsAdapter;
 import cl.duoc.xyzbank.bffweb.dashboard.infrastructure.adapters.HttpCustomerProfileAdapter;
+import cl.duoc.xyzbank.bffweb.dashboard.infrastructure.adapters.HttpDashboardInterestAdapter;
 import cl.duoc.xyzbank.bffweb.dashboard.infrastructure.adapters.HttpTransactionsAdapter;
 import cl.duoc.xyzbank.bffweb.shared.infrastructure.adapters.CoreServiceCallException;
 import cl.duoc.xyzbank.bffweb.transactionhistory.application.dto.TransactionHistoryResponse;
@@ -40,6 +42,8 @@ class CoreServiceAdaptersIT {
      * 5. HttpTransactionsAdapter maps a 200 response correctly
      * 6. HttpTransactionsAdapter raises CoreServiceCallException(404) on a 404 response
      * 7. HttpTransactionsAdapter forwards from/to/type/cursor/pageSize unchanged
+     * 8. HttpDashboardInterestAdapter maps a 200 response correctly
+     * 9. HttpDashboardInterestAdapter raises CoreServiceCallException(404) on a 404 response
      */
 
     private WireMockServer wireMockServer;
@@ -178,5 +182,48 @@ class CoreServiceAdaptersIT {
                 .withQueryParam("type", equalTo("DEBIT"))
                 .withQueryParam("cursor", equalTo("cursor-2"))
                 .withQueryParam("pageSize", equalTo("20")));
+    }
+
+    @Test
+    @DisplayName("HttpDashboardInterestAdapter maps a 200 response correctly")
+    void httpDashboardInterestAdapterMapsA200Response() {
+        wireMockServer.stubFor(get(urlEqualTo("/internal/accounts/account-1/interest-summary?year=2026"))
+                .willReturn(aResponse()
+                        .withStatus(200)
+                        .withHeader("Content-Type", "application/json")
+                        .withBody(
+                                "{\"accountId\":\"account-1\",\"year\":2026,\"openingBalance\":1000.00,"
+                                        + "\"closingBalance\":1100.00,\"interestRate\":0.05,\"interestAmount\":50.00,"
+                                        + "\"currency\":\"USD\"}")));
+
+        InterestSummary interest =
+                new HttpDashboardInterestAdapter(coreServiceClient).fetchSummary("account-1", "2026");
+
+        assertEquals(
+                new InterestSummary(
+                        "account-1",
+                        2026,
+                        new BigDecimal("1000.00"),
+                        new BigDecimal("1100.00"),
+                        new BigDecimal("0.05"),
+                        new BigDecimal("50.00"),
+                        "USD"),
+                interest);
+    }
+
+    @Test
+    @DisplayName("HttpDashboardInterestAdapter raises CoreServiceCallException(404) on a 404 response")
+    void httpDashboardInterestAdapterRaisesCoreServiceCallExceptionOn404() {
+        wireMockServer.stubFor(get(urlEqualTo("/internal/accounts/unknown/interest-summary?year=2026"))
+                .willReturn(aResponse()
+                        .withStatus(404)
+                        .withHeader("Content-Type", "application/problem+json")
+                        .withBody("{\"detail\":\"Account unknown not found\"}")));
+
+        CoreServiceCallException exception = assertThrows(
+                CoreServiceCallException.class,
+                () -> new HttpDashboardInterestAdapter(coreServiceClient).fetchSummary("unknown", "2026"));
+
+        assertEquals(404, exception.getStatus());
     }
 }

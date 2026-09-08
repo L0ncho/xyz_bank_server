@@ -2,8 +2,9 @@ openapi: 3.0.3
 info:
   title: bff-mobile
   description: >
-    Mobile channel backend-for-frontend. Returns a small, flattened account
-    summary with a fixed page of recent transactions. Does not access any database.
+    Mobile channel backend-for-frontend. Returns an ultra-light, flattened
+    account summary (accountId, balance, currency) with no transaction history.
+    Does not access any database.
   version: "1.0.0"
 servers:
   - url: http://localhost:8082
@@ -31,7 +32,7 @@ paths:
             enum: [mobile]
       responses:
         '200':
-          description: Flattened balance plus a fixed-size list of recent transactions
+          description: Flat accountId, balance, and currency only
           content:
             application/json:
               schema:
@@ -58,31 +59,15 @@ components:
   schemas:
     AccountSummaryResponse:
       type: object
-      required: [balance, currency, transactions]
+      required: [accountId, balance, currency]
+      additionalProperties: false
       properties:
+        accountId:
+          type: string
         balance:
           type: number
         currency:
           type: string
-        transactions:
-          type: array
-          maxItems: 5
-          items:
-            $ref: '#/components/schemas/RecentTransaction'
-    RecentTransaction:
-      type: object
-      required: [id, type, amount, occurredOn]
-      properties:
-        id:
-          type: string
-        type:
-          type: string
-          enum: [DEBIT, CREDIT]
-        amount:
-          type: number
-        occurredOn:
-          type: string
-          format: date
     ProblemDetail:
       type: object
       properties:

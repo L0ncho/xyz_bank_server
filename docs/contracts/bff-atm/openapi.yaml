@@ -122,8 +122,11 @@ components:
   schemas:
     BalanceResponse:
       type: object
-      required: [balance, currency]
+      required: [accountId, balance, currency]
+      additionalProperties: false
       properties:
+        accountId:
+          type: string
         balance:
           type: number
         currency:

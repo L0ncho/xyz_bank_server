@@ -8,5 +8,6 @@ public record AccountSummary(
         String accountNumber,
         BigDecimal balance,
         String currency,
-        List<RecentTransaction> transactions) {
+        List<RecentTransaction> transactions,
+        InterestSummary interest) {
 }

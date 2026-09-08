@@ -6,8 +6,11 @@ import cl.duoc.xyzbank.bffweb.dashboard.application.dto.CustomerProfile;
 import cl.duoc.xyzbank.bffweb.dashboard.application.dto.DashboardResponse;
 import cl.duoc.xyzbank.bffweb.dashboard.application.ports.AccountsPort;
 import cl.duoc.xyzbank.bffweb.dashboard.application.ports.CustomerProfilePort;
+import cl.duoc.xyzbank.bffweb.dashboard.application.ports.InterestPort;
 import cl.duoc.xyzbank.bffweb.dashboard.application.ports.TransactionsPort;
 
+import java.time.Clock;
+import java.time.Year;
 import java.util.List;
 
 public class DashboardUseCase {
@@ -17,14 +20,20 @@ public class DashboardUseCase {
     private final CustomerProfilePort customerProfilePort;
     private final AccountsPort accountsPort;
     private final TransactionsPort transactionsPort;
+    private final InterestPort interestPort;
+    private final Clock clock;
 
     public DashboardUseCase(
             CustomerProfilePort customerProfilePort,
             AccountsPort accountsPort,
-            TransactionsPort transactionsPort) {
+            TransactionsPort transactionsPort,
+            InterestPort interestPort,
+            Clock clock) {
         this.customerProfilePort = customerProfilePort;
         this.accountsPort = accountsPort;
         this.transactionsPort = transactionsPort;
+        this.interestPort = interestPort;
+        this.clock = clock;
     }
 
     public DashboardResponse execute(String customerId) {
@@ -37,11 +46,13 @@ public class DashboardUseCase {
     }
 
     private AccountSummary toAccountSummary(AccountBalance account) {
+        String year = String.valueOf(Year.now(clock).getValue());
         return new AccountSummary(
                 account.id(),
                 account.accountNumber(),
                 account.balance(),
                 account.currency(),
-                transactionsPort.fetchLatestTransactions(account.id(), LATEST_TRANSACTIONS_PAGE_SIZE));
+                transactionsPort.fetchLatestTransactions(account.id(), LATEST_TRANSACTIONS_PAGE_SIZE),
+                interestPort.fetchSummary(account.id(), year));
     }
 }
