@@ -70,6 +70,7 @@ components:
           type: string
     ProblemDetail:
       type: object
+      required: [title, status, detail]
       properties:
         type:
           type: string

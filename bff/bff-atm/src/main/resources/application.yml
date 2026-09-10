@@ -15,6 +15,11 @@ core-service:
   base-url: ${CORE_SERVICE_BASE_URL:http://localhost:8080}
   connect-timeout-ms: 3000
   read-timeout-ms: 3000
+  retry:
+    max-attempts: 3
+    initial-backoff-ms: 200
+    multiplier: 2.0
+    max-backoff-ms: 2000
 
 xyzbank:
   security:

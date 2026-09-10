@@ -1,0 +1,113 @@
+---
+description: Simplified value object guidelines for common patterns
+globs: ["**/model/**/*.java"]
+alwaysApply: false
+---
+
+# Value Objects
+
+Value Objects are **immutable** objects defined by their **attributes**, not by identity. Use them when a concept has validation rules or behavior beyond a raw primitive.
+
+## When to Use
+
+Use a value object when:
+- A field has **validation rules** (e.g., email format, positive number)
+- A field has **behavior** (e.g., money addition, date range overlap)
+- Multiple fields form a **single concept** (e.g., address = street + city + zip)
+
+For simple fields without special validation, **use plain types** (`String`, `int`, `double`).
+
+## JPA-Compatible Value Objects
+
+In a layered Spring Boot project, value objects can be embedded in JPA entities using `@Embeddable`.
+
+```java
+@Embeddable
+public class Money {
+
+    @Column(nullable = false)
+    private double amount;
+
+    @Column(nullable = false)
+    private String currency;
+
+    protected Money() {}
+
+    public Money(double amount, String currency) {
+        if (amount < 0) {
+            throw new IllegalArgumentException("Amount cannot be negative");
+        }
+        this.amount = amount;
+        this.currency = currency;
+    }
+
+    public Money add(Money other) {
+        if (!this.currency.equals(other.currency)) {
+            throw new IllegalArgumentException("Cannot add different currencies");
+        }
+        return new Money(this.amount + other.amount, this.currency);
+    }
+
+    public double getAmount() { return amount; }
+    public String getCurrency() { return currency; }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (!(o instanceof Money money)) return false;
+        return Double.compare(money.amount, amount) == 0
+                && currency.equals(money.currency);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(amount, currency);
+    }
+}
+```
+
+Usage in an entity:
+
+```java
+@Entity
+public class Product {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    private String name;
+
+    @Embedded
+    private Money price;
+}
+```
+
+## Simple Value Objects (Enums)
+
+For constrained sets of values, prefer Java enums:
+
+```java
+public enum OrderStatus {
+    DRAFT, CONFIRMED, SHIPPED, DELIVERED, CANCELLED
+}
+```
+
+## Characteristics
+
+- **Immutability**: Once created, they cannot change
+- **Equality by value**: Override `equals` and `hashCode`
+- **Self-validation**: Validate constraints in the constructor
+- **Side-effect free**: Operations return new instances
+
+## Non-Negotiable Rules
+
+### ❌ I will NEVER:
+1. Mutate a value object after creation
+2. Use setters in value objects
+
+### ✅ I will ALWAYS:
+1. Override `equals` and `hashCode`
+2. Return new instances from operations (not mutate)
+3. Validate constraints in the constructor
+4. Include a protected no-arg constructor for JPA when using `@Embeddable`

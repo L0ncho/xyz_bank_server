@@ -1,13 +1,13 @@
 # XYZ Bank Server
 
-Monorepo Java 21 / Spring Boot 3.5 de XYZ Bank: tres BFF por canal frente a un `core-service` interno, más un job de migración CSV hacia MySQL.
+Monorepo Java 21 / Spring Boot 3.5 de XYZ Bank: tres BFF por canal frente a un `core-service` interno. El seed de demo vive en Flyway de PostgreSQL.
 
 ## Objetivo
 
 Exponer **una API distinta por canal** (web, mobile, ATM) sin que los clientes hablen con la base ni con el dominio interno.
 
 - **Un BFF por canal.** Cada BFF agrega y recorta las respuestas de `core-service` según el ancho de banda y la necesidad del canal. Ningún BFF usa JPA ni tiene base de datos.
-- **Un solo dueño de datos bancarios.** Solo `core-service` habla con PostgreSQL. MySQL queda reservado a reportes del job de migración CSV; esas filas no se copian a core.
+- **Un solo dueño de datos bancarios.** Solo `core-service` habla con PostgreSQL. Los BFF no usan JPA, Batch ni base propia.
 - **Identidad y transporte reales.** Los BFF autentican con **JWT Bearer HS256 sobre HTTPS**. No hay fallback a `X-Customer-Id` / `X-Channel`. El rol del token (`ROLE_WEB`, `ROLE_MOBILE`, `ROLE_ATM`) debe coincidir con el canal.
 - **Arquitectura hexagonal.** Use cases y DTOs en `application`; HTTP hacia core en `infrastructure`; ArchUnit impide que un BFF importe persistencia o el dominio de otro módulo.
 
@@ -31,7 +31,7 @@ xyz_bank_server/
 │   ├── core-domain/             Entidades y reglas (sin Spring, sin HTTP)
 │   ├── core-service/            HTTP :8080 — único dueño de PostgreSQL
 │   └── shared-security/         JWT, CallerContext, filtro de autenticación
-├── data-migration/              Job one-shot CSV → MySQL 8.4
+├── data-migration/              Fuera del reactor (Batch, no forma parte del runtime BFF)
 ├── docs/
 │   ├── architecture.md
 │   └── contracts/               OpenAPI por servicio (fuente de verdad)
@@ -65,8 +65,6 @@ flowchart LR
 
   CoreService[core-service :8080]
   Postgres[(PostgreSQL 16)]
-  MySQL[(MySQL 8.4)]
-  Migration[data-migration one-shot]
 
   WebClient --> BffWeb
   MobileClient --> BffMobile
@@ -75,7 +73,6 @@ flowchart LR
   BffMobile --> CoreService
   BffAtm --> CoreService
   CoreService --> Postgres
-  Migration --> MySQL
 ```
 
 Contratos: [`docs/contracts/`](docs/contracts/). Arquitectura: [`docs/architecture.md`](docs/architecture.md).
@@ -98,15 +95,13 @@ docker compose up --build
 
 | Servicio | Puerto | Rol |
 |---|---|---|
-| MySQL 8.4 | 3306 | Reportes de la migración CSV |
-| PostgreSQL 16 | 5432 | Datos de `core-service` |
-| data-migration | (one-shot) | Procesa los CSV y sale con código 0 |
+| PostgreSQL 16 | 5432 | Datos de `core-service` (Flyway + seed) |
 | core-service | 8080 HTTP | API interna de dominio |
 | bff-web | 8081 HTTPS | Dashboard, historial e intereses |
 | bff-mobile | 8082 HTTPS | Resumen aplanado de cuenta |
 | bff-atm | 8083 HTTPS | Saldo y retiro |
 
-El job espera a que MySQL esté sano. `core-service` espera a PostgreSQL **y** a que la migración termine con éxito. Los BFF esperan a que `core-service` reporte `/actuator/health` en UP.
+`core-service` espera a PostgreSQL sano. Los BFF esperan a que `core-service` reporte `/actuator/health` en UP.
 
 El certificado de 8081–8083 es autofirmado (`scripts/generate-dev-keystore.ps1` / `.sh`). Health y OpenAPI no requieren token.
 
@@ -117,7 +112,7 @@ docker compose down -v   # apagar y borrar volúmenes (incluye el seed de demo)
 
 ### Datos de demo
 
-Tras un arranque limpio, PostgreSQL contiene un cliente y una cuenta fijos (Flyway `V6__seed_demo_data.sql`). No se copian filas desde MySQL.
+Tras un arranque limpio, PostgreSQL contiene un cliente y una cuenta fijos (Flyway `V6__seed_demo_data.sql`).
 
 | Recurso | Valor |
 |---|---|
@@ -237,29 +232,37 @@ mvn verify
 mvn -pl platform/shared-security,bff/bff-web,bff/bff-mobile,bff/bff-atm -am test
 ```
 
-Los ITs de PostgreSQL/MySQL usan Testcontainers. Sin Docker se omiten (`disabledWithoutDocker`) en lugar de fallar. Los tests de los BFF desactivan SSL (`server.ssl.enabled=false`).
-
-### Verificar la migración (MySQL)
-
-```bash
-docker compose exec mysql mysql -umigration -pmigration xyz_bank_migration -e "SELECT * FROM migration_executions;"
-docker compose exec mysql mysql -umigration -pmigration xyz_bank_migration -e "SELECT COUNT(*) FROM daily_transaction_reports;"
-docker compose exec mysql mysql -umigration -pmigration xyz_bank_migration -e "SELECT COUNT(*) FROM account_balances;"
-docker compose exec mysql mysql -umigration -pmigration xyz_bank_migration -e "SELECT COUNT(*) FROM annual_audit_reports;"
-```
-
-`status = SUCCESS` en `migration_executions` para `dailyTransactionsJob`, `monthlyInterestsJob` y `annualGenerationJob` indica que el job ya corrió. Un segundo `docker compose up` reutiliza el volumen y el job vuelve a salir 0 (ya migrado).
+Los ITs de PostgreSQL usan Testcontainers. Sin Docker se omiten (`disabledWithoutDocker`) en lugar de fallar. Los tests de los BFF desactivan SSL (`server.ssl.enabled=false`).
 
 ### Troubleshooting
 
-- **Puertos 3306 o 5432 ocupados.** Otro MySQL/Postgres local está usando el puerto. Deben estar libres, o baja el stack con `docker compose down` (eso no apaga bases de otros proyectos).
+- **Puerto 5432 ocupado.** Otro Postgres local está usando el puerto. Debe estar libre, o baja el stack con `docker compose down` (eso no apaga bases de otros proyectos).
 - **401 en los BFF.** Falta `Authorization: Bearer` o el JWT está mal firmado / vencido / con `iss` distinto de `xyz-bank`.
 - **403 en los BFF.** Canal o rol incorrectos (un JWT `mobile` contra web, o `roles` que no calzan). En ATM, `X-Terminal-Id` ausente o distinto del claim `terminalId`.
 - **El seed de demo desapareció o el dashboard da 404.** Flyway no reinserta filas de una versión ya aplicada. Reset: `docker compose down -v` y vuelve a `up --build`.
-- **La migración falló y core-service no arranca.** Compose espera `service_completed_successfully`. Revisa `docker compose logs data-migration`.
 - **PostgreSQL cae con el stack ya arriba.** `GET http://localhost:8080/actuator/health` deja de reportar UP. Los BFF no tienen base propia: su health sigue UP aunque Postgres esté caído.
 - **Testcontainers skipped.** Arranca Docker Desktop y vuelve a `mvn verify`.
-- **Solo quieres experimentar el job CSV.** Usa [`data-migration/docker-compose.yml`](data-migration/docker-compose.yml) (MySQL aislado). El camino soportado de plataforma completa es el Compose de la raíz.
+- **502 Bad Gateway.** `core-service` respondió 5xx. El BFF no reenvía el body interno.
+- **504 Gateway Timeout.** `core-service` no contestó dentro de 3s (tras los reintentos GET).
+
+## Decisiones de Arquitectura y Resiliencia
+
+Los BFF son el borde web del sistema. El stack de runtime es Spring Boot web + JWT + HTTPS. **Spring Batch no forma parte de ese borde:** `data-migration` queda fuera del reactor Maven y de Compose. El seed de cuentas vive en Flyway de PostgreSQL (`V6__seed_demo_data.sql`). El directorio `data-migration/` se conserva por si se necesita el job CSV de forma aislada.
+
+Los tres BFF hablan con `core-service` con el mismo `RestClient` (no RestTemplate):
+
+- Timeouts explícitos: 3s de conexión y 3s de lectura (`core-service.connect-timeout-ms` / `read-timeout-ms`).
+- Retry con backoff exponencial solo en **GET**: máximo 3 intentos, 200ms × 2, tope 2s. Se reintenta I/O, timeout, 502, 503 y 504.
+- **POST de retiro no se reintenta a nivel HTTP.** Un timeout a mitad de un retiro no debe duplicar el débito; el cliente ATM reenvía con el mismo `Idempotency-Key`.
+
+Errores hacia el canal: `@RestControllerAdvice` + RFC 7807 (`application/problem+json`) con `title`, `status` y `detail`. Sin stack traces ni bodies internos de core.
+
+- 404 de core → 404 `Not Found` (“The requested resource was not found”).
+- 409 / 422 de core → mismo status (conflictos e fondos insuficientes en ATM).
+- 5xx de core → 502 `Bad Gateway`.
+- Timeout o conexión → 504 `Gateway Timeout`.
+
+Plan de esta fase: [`docs/plan-bff-resilience-standardization.md`](docs/plan-bff-resilience-standardization.md).
 
 ## Pruebas con Postman
 

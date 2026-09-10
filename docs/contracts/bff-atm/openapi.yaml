@@ -158,6 +158,7 @@ components:
           type: number
     ProblemDetail:
       type: object
+      required: [title, status, detail]
       properties:
         type:
           type: string

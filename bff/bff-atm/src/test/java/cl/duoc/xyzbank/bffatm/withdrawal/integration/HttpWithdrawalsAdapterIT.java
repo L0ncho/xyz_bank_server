@@ -2,6 +2,8 @@ package cl.duoc.xyzbank.bffatm.withdrawal.integration;
 
 import cl.duoc.xyzbank.bffatm.shared.infrastructure.adapters.CoreServiceCallException;
 import cl.duoc.xyzbank.bffatm.shared.infrastructure.rest.CorrelationIdClientInterceptor;
+import cl.duoc.xyzbank.bffatm.shared.infrastructure.rest.ExponentialBackoffRetryInterceptor;
+import cl.duoc.xyzbank.bffatm.shared.infrastructure.rest.ExponentialBackoffRetryInterceptor.RetryPolicy;
 import cl.duoc.xyzbank.bffatm.withdrawal.application.dto.WithdrawalRequest;
 import cl.duoc.xyzbank.bffatm.withdrawal.infrastructure.adapters.HttpWithdrawalsAdapter;
 import com.github.tomakehurst.wiremock.WireMockServer;
@@ -32,6 +34,7 @@ class HttpWithdrawalsAdapterIT {
      * 1. Forwards the Idempotency-Key header unchanged
      * 2. Maps a core-service 409 to CoreServiceCallException
      * 3. A retry reuses Idempotency-Key and X-Correlation-Id
+     * 4. A core-service 503 on POST is not retried by HTTP backoff
      */
 
     private WireMockServer wireMockServer;
@@ -45,6 +48,9 @@ class HttpWithdrawalsAdapterIT {
                 .baseUrl(wireMockServer.baseUrl())
                 .requestFactory(new SimpleClientHttpRequestFactory())
                 .requestInterceptor(new CorrelationIdClientInterceptor())
+                .requestInterceptor(new ExponentialBackoffRetryInterceptor(
+                        new RetryPolicy(3, 200, 2.0, 2000), millis -> {
+                        }))
                 .build();
     }
 
@@ -97,6 +103,23 @@ class HttpWithdrawalsAdapterIT {
         wireMockServer.verify(2, postRequestedFor(urlEqualTo("/internal/accounts/account-1/withdrawals"))
                 .withHeader("Idempotency-Key", equalTo("key-1"))
                 .withHeader("X-Correlation-Id", equalTo("corr-atm-1")));
+    }
+
+    @Test
+    @DisplayName("does not HTTP-retry a POST withdrawal when core-service returns 503")
+    void doesNotHttpRetryAPostWithdrawalWhenCoreServiceReturns503() {
+        wireMockServer.stubFor(post(urlEqualTo("/internal/accounts/account-1/withdrawals"))
+                .willReturn(aResponse()
+                        .withStatus(503)
+                        .withHeader("Content-Type", "application/problem+json")
+                        .withBody("{\"detail\":\"unavailable\"}")));
+
+        assertThrows(
+                CoreServiceCallException.class,
+                () -> new HttpWithdrawalsAdapter(coreServiceClient)
+                        .withdraw("account-1", new WithdrawalRequest(new BigDecimal("40.00"), "USD"), "key-1"));
+
+        wireMockServer.verify(1, postRequestedFor(urlEqualTo("/internal/accounts/account-1/withdrawals")));
     }
 
     private void stubSuccessfulWithdrawal() {

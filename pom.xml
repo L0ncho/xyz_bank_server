@@ -12,7 +12,7 @@
     <description>XYZ Bank BFF platform - multi-module reactor</description>
 
     <modules>
-        <module>data-migration</module>
+        <!-- data-migration (Spring Batch) is out of the BFF/platform reactor. -->
         <module>platform/core-domain</module>
         <module>platform/shared-security</module>
         <module>platform/core-service</module>

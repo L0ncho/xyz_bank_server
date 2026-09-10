@@ -19,6 +19,12 @@ class BffAtmArchitectureTest {
             .resideInAnyPackage("jakarta.persistence..", "org.hibernate..", "org.springframework.data.jpa..");
 
     @ArchTest
+    static final ArchRule doesNotImportSpringBatch = noClasses()
+            .should()
+            .dependOnClassesThat()
+            .resideInAnyPackage("org.springframework.batch..");
+
+    @ArchTest
     static final ArchRule doesNotImportCoreDomain = noClasses()
             .should()
             .dependOnClassesThat()

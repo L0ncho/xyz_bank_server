@@ -19,6 +19,7 @@ import static com.github.tomakehurst.wiremock.client.WireMock.getRequestedFor;
 import static com.github.tomakehurst.wiremock.client.WireMock.urlEqualTo;
 import static com.github.tomakehurst.wiremock.core.WireMockConfiguration.wireMockConfig;
 import static io.restassured.RestAssured.given;
+import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.emptyOrNullString;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.not;
@@ -69,6 +70,28 @@ class AccountSummaryControllerE2ETest {
                 .body("transactions", nullValue())
                 .body("profile", nullValue())
                 .body("nextCursor", nullValue());
+    }
+
+    @Test
+    @DisplayName("maps an upstream 500 to a 502 problem without internal traces")
+    void mapsAnUpstream500ToA502ProblemWithoutInternalTraces() {
+        CORE_SERVICE.resetAll();
+        CORE_SERVICE.stubFor(get(urlEqualTo("/internal/accounts/account-1/balance"))
+                .willReturn(aResponse()
+                        .withStatus(500)
+                        .withHeader("Content-Type", "application/problem+json")
+                        .withBody("{\"detail\":\"boom\",\"trace\":\"java.lang.IllegalStateException\"}")));
+
+        given()
+                .header("Authorization", "Bearer " + Hs256JwtFactory.devToken("customer-1", "mobile"))
+                .when()
+                .get("/accounts/{accountId}/summary", "account-1")
+                .then()
+                .statusCode(502)
+                .contentType("application/problem+json")
+                .body("title", equalTo("Bad Gateway"))
+                .body("detail", equalTo("The upstream service failed"))
+                .body("detail", not(containsString("IllegalStateException")));
     }
 
     @Test

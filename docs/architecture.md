@@ -1,6 +1,6 @@
 # Architecture
 
-XYZ Bank exposes three channel-specific backends for frontend (BFFs) in front of a single internal `core-service`. Only `core-service` talks to PostgreSQL. The legacy CSV sanitization job writes reports to a separate MySQL instance; those reports are not loaded into core-service tables.
+XYZ Bank exposes three channel-specific backends for frontend (BFFs) in front of a single internal `core-service`. Only `core-service` talks to PostgreSQL. Spring Batch and the legacy CSV job are out of the platform reactor and Compose runtime.
 
 ## Current topology
 
@@ -22,8 +22,6 @@ flowchart LR
 
   CoreService[core-service :8080]
   Postgres[(PostgreSQL 16)]
-  MySQL[(MySQL 8.4)]
-  Migration[data-migration one-shot]
 
   WebClient --> BffWeb
   MobileClient --> BffMobile
@@ -32,12 +30,11 @@ flowchart LR
   BffMobile --> CoreService
   BffAtm --> CoreService
   CoreService --> Postgres
-  Migration --> MySQL
 ```
 
 ## Target topology
 
-The BFF split and `core-service` boundary stay. What changes is how each channel proves who the caller is: OAuth2/OIDC for web, device-bound tokens for mobile, and mTLS plus PIN for ATM. The header `CallerContext` adapter is replaced; payload shapes, aggregation in the BFFs, and the PostgreSQL/MySQL split do not.
+The BFF split and `core-service` boundary stay. What changes is how each channel proves who the caller is: OAuth2/OIDC for web, device-bound tokens for mobile, and mTLS plus PIN for ATM. The JWT `CallerContext` adapter is replaced; payload shapes, aggregation in the BFFs, and PostgreSQL as the only banking store do not.
 
 ```mermaid
 flowchart LR
@@ -55,8 +52,6 @@ flowchart LR
 
   CoreService[core-service]
   Postgres[(PostgreSQL 16)]
-  MySQL[(MySQL 8.4)]
-  Migration[data-migration one-shot]
 
   WebClient --> BffWeb
   MobileClient --> BffMobile
@@ -65,7 +60,6 @@ flowchart LR
   BffMobile --> CoreService
   BffAtm --> CoreService
   CoreService --> Postgres
-  Migration --> MySQL
 ```
 
-What changes: the identity adapter in each BFF (headers today, channel-native credentials later) and any edge TLS/mTLS termination. What does not change: one BFF per channel, `core-service` as the only database owner for banking entities, MySQL reserved for migration reports, and the existing BFF payload contracts.
+What changes: the identity adapter in each BFF (JWT today, channel-native credentials later) and any edge TLS/mTLS termination. What does not change: one BFF per channel, `core-service` as the only database owner for banking entities, and the existing BFF payload contracts.

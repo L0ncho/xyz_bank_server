@@ -1,0 +1,166 @@
+---
+description: Error handling standards using Spring exceptions and @ControllerAdvice
+alwaysApply: true
+---
+
+# Error Handling
+
+## Custom Exceptions
+
+Use focused exception classes instead of a single DomainError. This integrates cleanly with Spring's `@ControllerAdvice`.
+
+```java
+// src/main/java/com/duoc/LearningPlatform/exception/ResourceNotFoundException.java
+
+public class ResourceNotFoundException extends RuntimeException {
+
+    public ResourceNotFoundException(String resourceName, Long id) {
+        super(resourceName + " with id " + id + " not found");
+    }
+
+    public ResourceNotFoundException(String message) {
+        super(message);
+    }
+}
+```
+
+## Global Exception Handler
+
+A single `@RestControllerAdvice` class maps exceptions to HTTP responses for the entire application.
+
+```java
+// src/main/java/com/duoc/LearningPlatform/exception/GlobalExceptionHandler.java
+
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.Map;
+import java.util.stream.Collectors;
+
+@RestControllerAdvice
+public class GlobalExceptionHandler {
+
+    @ExceptionHandler(ResourceNotFoundException.class)
+    public ResponseEntity<Map<String, String>> handleNotFound(ResourceNotFoundException ex) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                .body(Map.of("error", ex.getMessage()));
+    }
+
+    @ExceptionHandler(IllegalArgumentException.class)
+    public ResponseEntity<Map<String, String>> handleBadRequest(IllegalArgumentException ex) {
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                .body(Map.of("error", ex.getMessage()));
+    }
+
+    @ExceptionHandler(IllegalStateException.class)
+    public ResponseEntity<Map<String, String>> handleBusinessRule(IllegalStateException ex) {
+        return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY)
+                .body(Map.of("error", ex.getMessage()));
+    }
+
+    @ExceptionHandler(MethodArgumentNotValidException.class)
+    public ResponseEntity<Map<String, String>> handleValidation(MethodArgumentNotValidException ex) {
+        String message = ex.getBindingResult().getFieldErrors().stream()
+                .map(e -> e.getField() + ": " + e.getDefaultMessage())
+                .collect(Collectors.joining(", "));
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                .body(Map.of("error", message));
+    }
+}
+```
+
+---
+
+## Which Exception to Use
+
+| Situation | Exception | HTTP Status |
+|-----------|-----------|-------------|
+| Entity not found | `ResourceNotFoundException` | 404 |
+| Invalid input / validation | `IllegalArgumentException` | 400 |
+| Bean Validation failure (`@Valid`) | `MethodArgumentNotValidException` | 400 |
+| Business rule violation | `IllegalStateException` | 422 |
+| Unexpected / technical | Let bubble up | 500 |
+
+---
+
+## Where to Throw
+
+### In Model (invariants)
+
+```java
+public void confirm() {
+    if (this.items.isEmpty()) {
+        throw new IllegalStateException("Cannot confirm an empty order");
+    }
+    this.status = OrderStatus.CONFIRMED;
+}
+```
+
+### In Service (not found, business rules)
+
+```java
+public Order getOrder(Long id) {
+    return orderRepository.findById(id)
+            .orElseThrow(() -> new ResourceNotFoundException("Order", id));
+}
+```
+
+### In Controller — NOTHING
+
+Controllers don't handle errors directly. The `GlobalExceptionHandler` does it.
+
+---
+
+## Error Messages
+
+### What to Include
+- Human-readable description
+- Relevant context (entity name, IDs)
+
+### What NOT to Include
+- Stack traces
+- Internal implementation details
+- Database table names
+- File paths
+
+```java
+// ✅ GOOD
+throw new ResourceNotFoundException("Product", productId);
+
+// ❌ BAD — Exposes internals
+throw new RuntimeException("Product not found in table 'products' (ProductRepository.findById)");
+```
+
+---
+
+## When to Throw
+
+### ✅ Throw for:
+- Entity not found (when required for an operation)
+- Invariant violations (business rules broken)
+- Invalid state transitions
+- Invalid input values
+
+### ❌ Don't throw for:
+- Optional values (return `Optional.empty()`)
+- Expected empty results (return empty list)
+
+---
+
+## Non-Negotiable Rules
+
+### ❌ I will NEVER:
+1. Expose stack traces or internal details in error messages
+2. Use generic error messages ("Something went wrong")
+3. Catch and swallow errors silently
+4. Handle errors with try-catch in controllers (use `GlobalExceptionHandler`)
+
+### ✅ I will ALWAYS:
+1. Use `ResourceNotFoundException` for not-found cases
+2. Use `IllegalArgumentException` for bad input
+3. Use `IllegalStateException` for business rule violations
+4. Include relevant context in error messages
+5. Let technical errors bubble up for proper logging
+6. Return consistent error format: `{ "error": "message" }`

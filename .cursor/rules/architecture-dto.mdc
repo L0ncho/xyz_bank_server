@@ -1,0 +1,125 @@
+---
+description: DTO rules for request/response objects at the controller boundary
+globs: ["**/dto/**/*.java"]
+alwaysApply: false
+---
+
+# DTOs (Data Transfer Objects)
+
+DTOs are plain objects used at the **controller boundary** to separate the HTTP contract from the internal model.
+
+## Where DTOs Live
+
+```
+src/main/java/com/duoc/LearningPlatform/
+└── dto/
+    ├── CreateOrderRequest.java
+    ├── UpdateOrderRequest.java
+    └── OrderResponse.java
+```
+
+---
+
+## Request DTOs
+
+Used for `POST` and `PUT` request bodies. Include Bean Validation annotations.
+
+```java
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Positive;
+
+public class CreateOrderRequest {
+
+    @NotBlank(message = "customerName is required")
+    private String customerName;
+
+    @NotNull(message = "productId is required")
+    private Long productId;
+
+    @Positive(message = "quantity must be positive")
+    private int quantity;
+
+    public String getCustomerName() { return customerName; }
+    public Long getProductId() { return productId; }
+    public int getQuantity() { return quantity; }
+
+    public void setCustomerName(String customerName) { this.customerName = customerName; }
+    public void setProductId(Long productId) { this.productId = productId; }
+    public void setQuantity(int quantity) { this.quantity = quantity; }
+}
+```
+
+## Response DTOs
+
+Used to shape what the API returns. Include a static factory method to map from the entity.
+
+```java
+public class OrderResponse {
+
+    private Long id;
+    private String customerName;
+    private String status;
+
+    public static OrderResponse fromEntity(Order order) {
+        OrderResponse response = new OrderResponse();
+        response.id = order.getId();
+        response.customerName = order.getCustomerName();
+        response.status = order.getStatus().name();
+        return response;
+    }
+
+    public Long getId() { return id; }
+    public String getCustomerName() { return customerName; }
+    public String getStatus() { return status; }
+
+    public void setId(Long id) { this.id = id; }
+    public void setCustomerName(String customerName) { this.customerName = customerName; }
+    public void setStatus(String status) { this.status = status; }
+}
+```
+
+## DTO Characteristics
+
+- **Plain objects**: Getters, setters, no business logic
+- **Serializable**: Jackson maps them to/from JSON automatically
+- **Validation on Request DTOs**: Use `@NotBlank`, `@NotNull`, `@Positive`, `@Size`, etc.
+- **Factory method on Response DTOs**: `fromEntity()` for mapping
+
+```java
+// ❌ BAD — Returning entity directly from controller
+@GetMapping("/{id}")
+public Order getById(@PathVariable Long id) {
+    return orderService.getOrder(id);
+}
+
+// ✅ GOOD — Returning a Response DTO
+@GetMapping("/{id}")
+public ResponseEntity<OrderResponse> getById(@PathVariable Long id) {
+    Order order = orderService.getOrder(id);
+    return ResponseEntity.ok(OrderResponse.fromEntity(order));
+}
+```
+
+## Naming Conventions
+
+| Type | Suffix | Example |
+|------|--------|---------|
+| Create request | Request | `CreateOrderRequest` |
+| Update request | Request | `UpdateOrderRequest` |
+| Response | Response | `OrderResponse`, `ProductResponse` |
+
+---
+
+## Non-Negotiable Rules
+
+### ❌ I will NEVER:
+1. Put business logic in DTOs
+2. Return JPA entities directly from controllers (use Response DTOs)
+3. Use entity classes as request bodies (use Request DTOs)
+
+### ✅ I will ALWAYS:
+1. Use Bean Validation annotations on Request DTOs
+2. Use a `fromEntity()` factory method on Response DTOs
+3. Keep DTOs in the `dto/` package
+4. Include getters and setters (required by Jackson)

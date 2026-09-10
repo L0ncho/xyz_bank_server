@@ -16,12 +16,20 @@ public class BffExceptionHandler {
         HttpStatus status = exception.getType() == CallerIdentityException.Type.INVALID
                 ? HttpStatus.UNPROCESSABLE_ENTITY
                 : HttpStatus.FORBIDDEN;
-        return ProblemDetail.forStatusAndDetail(status, exception.getMessage());
+        return problem(status, exception.getMessage());
     }
 
     @ExceptionHandler(CoreServiceCallException.class)
     public ProblemDetail handleCoreServiceCall(CoreServiceCallException exception) {
-        return ProblemDetail.forStatusAndDetail(
-                HttpStatusCode.valueOf(exception.getStatus()), exception.getMessage());
+        return problem(HttpStatusCode.valueOf(exception.getStatus()), exception.getMessage());
+    }
+
+    private static ProblemDetail problem(HttpStatusCode status, String detail) {
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(status, detail);
+        HttpStatus resolved = HttpStatus.resolve(status.value());
+        if (resolved != null) {
+            problem.setTitle(resolved.getReasonPhrase());
+        }
+        return problem;
     }
 }

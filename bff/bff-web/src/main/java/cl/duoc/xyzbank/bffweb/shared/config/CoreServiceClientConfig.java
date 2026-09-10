@@ -1,6 +1,8 @@
 package cl.duoc.xyzbank.bffweb.shared.config;
 
 import cl.duoc.xyzbank.bffweb.shared.infrastructure.rest.CorrelationIdClientInterceptor;
+import cl.duoc.xyzbank.bffweb.shared.infrastructure.rest.ExponentialBackoffRetryInterceptor;
+import cl.duoc.xyzbank.bffweb.shared.infrastructure.rest.ExponentialBackoffRetryInterceptor.RetryPolicy;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -11,11 +13,22 @@ import org.springframework.web.client.RestClient;
 public class CoreServiceClientConfig {
 
     @Bean
+    public ExponentialBackoffRetryInterceptor exponentialBackoffRetryInterceptor(
+            @Value("${core-service.retry.max-attempts:3}") int maxAttempts,
+            @Value("${core-service.retry.initial-backoff-ms:200}") long initialBackoffMs,
+            @Value("${core-service.retry.multiplier:2.0}") double multiplier,
+            @Value("${core-service.retry.max-backoff-ms:2000}") long maxBackoffMs) {
+        return ExponentialBackoffRetryInterceptor.withThreadSleep(
+                new RetryPolicy(maxAttempts, initialBackoffMs, multiplier, maxBackoffMs));
+    }
+
+    @Bean
     public RestClient coreServiceClient(
             @Value("${core-service.base-url}") String baseUrl,
             @Value("${core-service.connect-timeout-ms}") int connectTimeoutMs,
             @Value("${core-service.read-timeout-ms}") int readTimeoutMs,
-            CorrelationIdClientInterceptor correlationIdClientInterceptor) {
+            CorrelationIdClientInterceptor correlationIdClientInterceptor,
+            ExponentialBackoffRetryInterceptor exponentialBackoffRetryInterceptor) {
         SimpleClientHttpRequestFactory requestFactory = new SimpleClientHttpRequestFactory();
         requestFactory.setConnectTimeout(connectTimeoutMs);
         requestFactory.setReadTimeout(readTimeoutMs);
@@ -23,6 +36,7 @@ public class CoreServiceClientConfig {
                 .baseUrl(baseUrl)
                 .requestFactory(requestFactory)
                 .requestInterceptor(correlationIdClientInterceptor)
+                .requestInterceptor(exponentialBackoffRetryInterceptor)
                 .build();
     }
 }
