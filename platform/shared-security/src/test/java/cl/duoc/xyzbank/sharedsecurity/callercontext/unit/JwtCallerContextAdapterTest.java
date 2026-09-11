@@ -16,6 +16,7 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.Base64;
 import java.util.Date;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -44,6 +45,7 @@ class JwtCallerContextAdapterTest {
      * 11. Rejects a malformed token
      * 12. Rejects a token with an invalid signature
      * 13. Rejects an expired token
+     * 14. Rejects a token whose channel claim was tampered from atm to web
      */
 
     private static final String SECRET = "unit-test-signing-secret-unit-test-signing-secret";
@@ -184,6 +186,25 @@ class JwtCallerContextAdapterTest {
         String token = fixedClockAdapter.issue("customer-1", Channel.WEB, null);
 
         assertThrows(CallerIdentityException.class, () -> adapter.resolve(token));
+    }
+
+    @Test
+    @DisplayName("rejects a token whose channel claim was tampered from atm to web")
+    void rejectsTokenWithTamperedChannelClaim() {
+        String token = adapter.issue("customer-3", Channel.ATM, "terminal-9");
+        String tamperedToken = tamperChannelClaim(token, "ATM", "WEB");
+
+        assertThrows(CallerIdentityException.class, () -> adapter.resolve(tamperedToken));
+    }
+
+    private String tamperChannelClaim(String token, String from, String to) {
+        String[] parts = token.split("\\.");
+        String payloadJson = new String(Base64.getUrlDecoder().decode(parts[1]), StandardCharsets.UTF_8)
+                .replace("\"channel\":\"" + from + "\"", "\"channel\":\"" + to + "\"");
+        String tamperedPayload = Base64.getUrlEncoder()
+                .withoutPadding()
+                .encodeToString(payloadJson.getBytes(StandardCharsets.UTF_8));
+        return parts[0] + "." + tamperedPayload + "." + parts[2];
     }
 
     private Claims parseClaims(String token) {
