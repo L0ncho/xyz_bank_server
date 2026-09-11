@@ -10,7 +10,7 @@ RUN --mount=type=cache,target=/root/.m2 mvn -pl bff/bff-atm -am package -DskipTe
 
 FROM eclipse-temurin:21-jre-alpine
 WORKDIR /app
-RUN apk add --no-cache wget
+RUN apk add --no-cache curl
 COPY --from=build /src/bff/bff-atm/target/bff-atm-0.0.1-SNAPSHOT-exec.jar app.jar
 EXPOSE 8083
 ENTRYPOINT ["java", "-jar", "/app/app.jar"]

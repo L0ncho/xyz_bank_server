@@ -1,5 +1,14 @@
 server:
   port: 8083
+  ssl:
+    enabled: true
+    key-store: ${TLS_KEYSTORE_PATH:classpath:tls/keystore.p12}
+    key-store-password: ${TLS_KEYSTORE_PASSWORD:xyzbank-dev}
+    key-store-type: PKCS12
+    trust-store: ${TLS_TRUSTSTORE_PATH:classpath:tls/truststore.p12}
+    trust-store-password: ${TLS_TRUSTSTORE_PASSWORD:xyzbank-dev}
+    trust-store-type: PKCS12
+    client-auth: need
 
 spring:
   application:

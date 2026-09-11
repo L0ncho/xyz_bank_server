@@ -1,5 +1,10 @@
 server:
   port: 8081
+  ssl:
+    enabled: true
+    key-store: ${TLS_KEYSTORE_PATH:classpath:tls/keystore.p12}
+    key-store-password: ${TLS_KEYSTORE_PASSWORD:xyzbank-dev}
+    key-store-type: PKCS12
 
 spring:
   application:
