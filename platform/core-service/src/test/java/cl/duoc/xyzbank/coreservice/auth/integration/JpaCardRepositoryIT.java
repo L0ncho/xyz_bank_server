@@ -1,0 +1,74 @@
+package cl.duoc.xyzbank.coreservice.auth.integration;
+
+import cl.duoc.xyzbank.coredomain.cards.domain.entities.Card;
+import cl.duoc.xyzbank.coredomain.shared.domain.DomainException;
+import cl.duoc.xyzbank.coredomain.shared.domain.Id;
+import cl.duoc.xyzbank.coreservice.auth.infrastructure.persistence.JpaCardRepository;
+import cl.duoc.xyzbank.sharedsecurity.callercontext.PinHasher;
+import cl.duoc.xyzbank.testsupport.AbstractPostgresIT;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+
+import java.util.Optional;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+@SpringBootTest
+@DisplayName("The JPA card repository")
+class JpaCardRepositoryIT extends AbstractPostgresIT {
+
+    /*
+     * Cases:
+     * 1. Saves a card and finds it by card number
+     * 2. Returns empty when no card matches the card number
+     * 3. Rejects a save based on a stale version (optimistic lock conflict)
+     */
+
+    private final PinHasher hasher = new PinHasher();
+
+    @Autowired
+    private JpaCardRepository cardRepository;
+
+    @Test
+    @DisplayName("saves a card and finds it by card number")
+    void savesACardAndFindsItByCardNumber() {
+        Id id = Id.generate();
+        Card card = Card.create(id, Id.generate(), hasher.hash("1234"), 0, false, 0L);
+
+        cardRepository.save(card);
+        Optional<Card> found = cardRepository.findByCardNumber(id);
+
+        assertTrue(found.isPresent());
+        assertEquals(Card.PinVerificationResult.SUCCESS, found.get().verifyPin("1234", hasher));
+    }
+
+    @Test
+    @DisplayName("returns empty when no card matches the card number")
+    void returnsEmptyWhenNoCardMatches() {
+        Optional<Card> found = cardRepository.findByCardNumber(Id.generate());
+
+        assertTrue(found.isEmpty());
+    }
+
+    @Test
+    @DisplayName("rejects a save based on a stale version")
+    void rejectsASaveBasedOnAStaleVersion() {
+        Id id = Id.generate();
+        Card original = Card.create(id, Id.generate(), hasher.hash("1234"), 0, false, 0L);
+        cardRepository.save(original);
+        Card firstCopy = cardRepository.findByCardNumber(id).orElseThrow();
+        Card secondCopy = cardRepository.findByCardNumber(id).orElseThrow();
+
+        firstCopy.verifyPin("9999", hasher);
+        cardRepository.save(firstCopy);
+
+        secondCopy.verifyPin("9999", hasher);
+        DomainException exception = assertThrows(DomainException.class, () -> cardRepository.save(secondCopy));
+
+        assertEquals(DomainException.Type.CONFLICT, exception.getType());
+    }
+}

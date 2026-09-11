@@ -18,6 +18,7 @@ public final class RefreshTokenRecord {
     private boolean rotated;
     private boolean revoked;
     private final Instant expiry;
+    private final long version;
 
     private RefreshTokenRecord(
             Id id,
@@ -28,7 +29,8 @@ public final class RefreshTokenRecord {
             String tokenHash,
             boolean rotated,
             boolean revoked,
-            Instant expiry) {
+            Instant expiry,
+            long version) {
         this.id = id;
         this.chainId = chainId;
         this.channel = channel;
@@ -38,6 +40,7 @@ public final class RefreshTokenRecord {
         this.rotated = rotated;
         this.revoked = revoked;
         this.expiry = expiry;
+        this.version = version;
     }
 
     public static RefreshTokenRecord create(
@@ -49,13 +52,15 @@ public final class RefreshTokenRecord {
             String tokenHash,
             boolean rotated,
             boolean revoked,
-            Instant expiry) {
-        return new RefreshTokenRecord(id, chainId, channel, ownerId, deviceId, tokenHash, rotated, revoked, expiry);
+            Instant expiry,
+            long version) {
+        return new RefreshTokenRecord(
+                id, chainId, channel, ownerId, deviceId, tokenHash, rotated, revoked, expiry, version);
     }
 
     public static RefreshTokenRecord issue(
             Id id, Channel channel, Id ownerId, String deviceId, String tokenHash, Instant expiry) {
-        return create(id, id, channel, ownerId, deviceId, tokenHash, false, false, expiry);
+        return create(id, id, channel, ownerId, deviceId, tokenHash, false, false, expiry, 0L);
     }
 
     public RefreshTokenRecord rotate(Id newId, String newTokenHash, Instant newExpiry) {
@@ -63,7 +68,7 @@ public final class RefreshTokenRecord {
             throw DomainException.conflict("Refresh token was already used; the chain must be revoked");
         }
         rotated = true;
-        return create(newId, chainId, channel, ownerId, deviceId, newTokenHash, false, false, newExpiry);
+        return create(newId, chainId, channel, ownerId, deviceId, newTokenHash, false, false, newExpiry, 0L);
     }
 
     public void revoke() {
@@ -104,5 +109,9 @@ public final class RefreshTokenRecord {
 
     public Instant getExpiry() {
         return expiry;
+    }
+
+    public long getVersion() {
+        return version;
     }
 }

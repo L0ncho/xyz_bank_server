@@ -34,6 +34,10 @@ public final class Card {
         return customerId;
     }
 
+    public String getPinHash() {
+        return pinHash;
+    }
+
     public int getConsecutiveFailures() {
         return consecutiveFailures;
     }
