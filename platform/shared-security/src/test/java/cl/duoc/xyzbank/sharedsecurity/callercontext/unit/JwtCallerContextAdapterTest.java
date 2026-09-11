@@ -1,5 +1,6 @@
 package cl.duoc.xyzbank.sharedsecurity.callercontext.unit;
 
+import cl.duoc.xyzbank.sharedsecurity.callercontext.CallerContext;
 import cl.duoc.xyzbank.sharedsecurity.callercontext.Channel;
 import cl.duoc.xyzbank.sharedsecurity.callercontext.JwtCallerContextAdapter;
 import io.jsonwebtoken.Claims;
@@ -33,6 +34,10 @@ class JwtCallerContextAdapterTest {
      * 3. Issues a token with a terminal id claim when one is supplied
      * 4. Caps an ATM token's lifetime at 120 seconds after issuance
      * 5. Issues a web/mobile token with a short-lived default expiry longer than 120 seconds
+     * 6. Resolves a web token into a CallerContext with the web channel's exact scopes
+     * 7. Resolves a mobile token into a CallerContext with the mobile channel's exact scopes
+     * 8. Resolves an ATM token into a CallerContext including its terminal id
+     * 9. Resolves a web token into a CallerContext with no terminal id
      */
 
     private static final String SECRET = "unit-test-signing-secret-unit-test-signing-secret";
@@ -95,6 +100,52 @@ class JwtCallerContextAdapterTest {
 
         Duration lifetime = Duration.between(FIXED_NOW, claims.getExpiration().toInstant());
         assertTrue(lifetime.compareTo(Duration.ofSeconds(120)) > 0);
+    }
+
+    @Test
+    @DisplayName("resolves a web token into a caller context with the web channel's exact scopes")
+    void resolvesWebTokenIntoCallerContext() {
+        String token = adapter.issue("customer-1", Channel.WEB, null);
+
+        CallerContext callerContext = adapter.resolve(token);
+
+        assertEquals("customer-1", callerContext.customerId());
+        assertEquals(Channel.WEB, callerContext.channel());
+        assertEquals(Channel.WEB.scopes(), callerContext.scopes());
+    }
+
+    @Test
+    @DisplayName("resolves a mobile token into a caller context with the mobile channel's exact scopes")
+    void resolvesMobileTokenIntoCallerContext() {
+        String token = adapter.issue("customer-2", Channel.MOBILE, null);
+
+        CallerContext callerContext = adapter.resolve(token);
+
+        assertEquals("customer-2", callerContext.customerId());
+        assertEquals(Channel.MOBILE, callerContext.channel());
+        assertEquals(Channel.MOBILE.scopes(), callerContext.scopes());
+    }
+
+    @Test
+    @DisplayName("resolves an atm token into a caller context including its terminal id")
+    void resolvesAtmTokenIncludingTerminalId() {
+        String token = adapter.issue("customer-3", Channel.ATM, "terminal-9");
+
+        CallerContext callerContext = adapter.resolve(token);
+
+        assertEquals(Channel.ATM, callerContext.channel());
+        assertEquals(Channel.ATM.scopes(), callerContext.scopes());
+        assertEquals(java.util.Optional.of("terminal-9"), callerContext.terminalId());
+    }
+
+    @Test
+    @DisplayName("resolves a web token into a caller context with no terminal id")
+    void resolvesWebTokenWithNoTerminalId() {
+        String token = adapter.issue("customer-1", Channel.WEB, null);
+
+        CallerContext callerContext = adapter.resolve(token);
+
+        assertEquals(java.util.Optional.empty(), callerContext.terminalId());
     }
 
     private Claims parseClaims(String token) {

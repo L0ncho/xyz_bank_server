@@ -1,5 +1,6 @@
 package cl.duoc.xyzbank.sharedsecurity.callercontext;
 
+import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.JwtBuilder;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
@@ -10,6 +11,8 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Date;
+import java.util.Optional;
+import java.util.Set;
 
 public final class JwtCallerContextAdapter {
 
@@ -43,7 +46,24 @@ public final class JwtCallerContextAdapter {
         return builder.compact();
     }
 
+    public CallerContext resolve(String token) {
+        Claims claims = Jwts.parser().verifyWith(key).build().parseSignedClaims(token).getPayload();
+        Channel channel = Channel.valueOf(claims.get("channel", String.class));
+        String customerId = claims.getSubject();
+        String terminalId = claims.get("terminalId", String.class);
+        return new ResolvedCallerContext(customerId, channel, channel.scopes(), terminalId);
+    }
+
     private Duration expiryFor(Channel channel) {
         return channel == Channel.ATM ? ATM_SESSION_TTL : DEFAULT_SESSION_TTL;
+    }
+
+    private record ResolvedCallerContext(String customerId, Channel channel, Set<String> scopes, String rawTerminalId)
+            implements CallerContext {
+
+        @Override
+        public Optional<String> terminalId() {
+            return Optional.ofNullable(rawTerminalId);
+        }
     }
 }
