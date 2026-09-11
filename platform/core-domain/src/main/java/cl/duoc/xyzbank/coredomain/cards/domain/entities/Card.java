@@ -46,17 +46,27 @@ public final class Card {
         return version;
     }
 
+    private static final int MAX_CONSECUTIVE_FAILURES = 3;
+
     public PinVerificationResult verifyPin(String pin, PinHasher hasher) {
+        if (locked) {
+            return PinVerificationResult.LOCKED;
+        }
         if (hasher.matches(pin, pinHash)) {
             consecutiveFailures = 0;
             return PinVerificationResult.SUCCESS;
         }
         consecutiveFailures++;
+        if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
+            locked = true;
+            return PinVerificationResult.LOCKED;
+        }
         return PinVerificationResult.INCORRECT;
     }
 
     public enum PinVerificationResult {
         SUCCESS,
-        INCORRECT
+        INCORRECT,
+        LOCKED
     }
 }
