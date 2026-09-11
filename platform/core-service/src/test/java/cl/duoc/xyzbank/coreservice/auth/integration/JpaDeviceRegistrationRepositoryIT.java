@@ -1,5 +1,7 @@
 package cl.duoc.xyzbank.coreservice.auth.integration;
 
+import cl.duoc.xyzbank.coredomain.accounts.domain.entities.Customer;
+import cl.duoc.xyzbank.coredomain.accounts.domain.repositories.CustomerRepository;
 import cl.duoc.xyzbank.coredomain.auth.domain.entities.DeviceRegistration;
 import cl.duoc.xyzbank.coredomain.shared.domain.Id;
 import cl.duoc.xyzbank.coreservice.auth.infrastructure.persistence.JpaDeviceRegistrationRepository;
@@ -28,11 +30,20 @@ class JpaDeviceRegistrationRepositoryIT extends AbstractPostgresIT {
     @Autowired
     private JpaDeviceRegistrationRepository deviceRegistrationRepository;
 
+    @Autowired
+    private CustomerRepository customerRepository;
+
+    private Id newCustomer() {
+        Id customerId = Id.generate();
+        customerRepository.save(Customer.create(customerId, "Test Customer", "test.customer@xyzbank.cl"));
+        return customerId;
+    }
+
     @Test
     @DisplayName("saves a device registration and finds it by device id")
     void savesADeviceRegistrationAndFindsItByDeviceId() {
         Id deviceId = Id.generate();
-        DeviceRegistration device = DeviceRegistration.register(deviceId, Id.generate());
+        DeviceRegistration device = DeviceRegistration.register(deviceId, newCustomer());
 
         deviceRegistrationRepository.save(device);
         Optional<DeviceRegistration> found = deviceRegistrationRepository.findByDeviceId(deviceId);
@@ -53,7 +64,7 @@ class JpaDeviceRegistrationRepositoryIT extends AbstractPostgresIT {
     @DisplayName("revoking a device is reflected on the next find")
     void revokingDeviceIsReflectedOnNextFind() {
         Id deviceId = Id.generate();
-        deviceRegistrationRepository.save(DeviceRegistration.register(deviceId, Id.generate()));
+        deviceRegistrationRepository.save(DeviceRegistration.register(deviceId, newCustomer()));
         DeviceRegistration fetched = deviceRegistrationRepository.findByDeviceId(deviceId).orElseThrow();
 
         fetched.revoke();

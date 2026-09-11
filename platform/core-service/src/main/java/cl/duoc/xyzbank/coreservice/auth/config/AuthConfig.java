@@ -1,0 +1,52 @@
+package cl.duoc.xyzbank.coreservice.auth.config;
+
+import cl.duoc.xyzbank.coredomain.auth.domain.repositories.DeviceRegistrationRepository;
+import cl.duoc.xyzbank.coredomain.auth.domain.repositories.RefreshTokenRepository;
+import cl.duoc.xyzbank.coredomain.cards.domain.repositories.CardRepository;
+import cl.duoc.xyzbank.coreservice.auth.application.usecases.RevokeDeviceUseCase;
+import cl.duoc.xyzbank.coreservice.auth.application.usecases.RotateMobileRefreshTokenUseCase;
+import cl.duoc.xyzbank.coreservice.auth.application.usecases.RotateWebRefreshTokenUseCase;
+import cl.duoc.xyzbank.coreservice.auth.application.usecases.VerifyPinUseCase;
+import cl.duoc.xyzbank.sharedsecurity.callercontext.OpaqueTokenGenerator;
+import cl.duoc.xyzbank.sharedsecurity.callercontext.PinHasher;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+
+@Configuration
+public class AuthConfig {
+
+    @Bean
+    public PinHasher pinHasher() {
+        return new PinHasher();
+    }
+
+    @Bean
+    public OpaqueTokenGenerator opaqueTokenGenerator() {
+        return new OpaqueTokenGenerator();
+    }
+
+    @Bean
+    public VerifyPinUseCase verifyPinUseCase(CardRepository cardRepository, PinHasher pinHasher) {
+        return new VerifyPinUseCase(cardRepository, pinHasher);
+    }
+
+    @Bean
+    public RotateWebRefreshTokenUseCase rotateWebRefreshTokenUseCase(
+            RefreshTokenRepository refreshTokenRepository, OpaqueTokenGenerator tokenGenerator) {
+        return new RotateWebRefreshTokenUseCase(refreshTokenRepository, tokenGenerator);
+    }
+
+    @Bean
+    public RotateMobileRefreshTokenUseCase rotateMobileRefreshTokenUseCase(
+            RefreshTokenRepository refreshTokenRepository,
+            DeviceRegistrationRepository deviceRegistrationRepository,
+            OpaqueTokenGenerator tokenGenerator) {
+        return new RotateMobileRefreshTokenUseCase(refreshTokenRepository, deviceRegistrationRepository,
+                tokenGenerator);
+    }
+
+    @Bean
+    public RevokeDeviceUseCase revokeDeviceUseCase(DeviceRegistrationRepository deviceRegistrationRepository) {
+        return new RevokeDeviceUseCase(deviceRegistrationRepository);
+    }
+}

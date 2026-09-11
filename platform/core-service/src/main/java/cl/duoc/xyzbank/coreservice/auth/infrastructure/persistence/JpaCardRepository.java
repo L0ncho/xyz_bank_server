@@ -30,7 +30,17 @@ public class JpaCardRepository implements CardRepository {
 
     @Override
     public Optional<Card> findByCardNumber(Id cardNumber) {
-        return jpaRepository.findById(UUID.fromString(cardNumber.getValue())).map(this::toDomain);
+        // A malformed (non-UUID) card number can never match a stored row; treating it as
+        // "not found" rather than letting UUID.fromString's exception escape keeps this
+        // lookup from behaving differently for garbage input than for a well-formed but
+        // unknown card number, which is exactly the existence oracle callers must not see.
+        UUID id;
+        try {
+            id = UUID.fromString(cardNumber.getValue());
+        } catch (IllegalArgumentException malformedCardNumber) {
+            return Optional.empty();
+        }
+        return jpaRepository.findById(id).map(this::toDomain);
     }
 
     private CardJpaEntity toEntity(Card card) {

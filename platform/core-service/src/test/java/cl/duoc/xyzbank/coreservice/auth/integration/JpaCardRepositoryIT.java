@@ -1,5 +1,7 @@
 package cl.duoc.xyzbank.coreservice.auth.integration;
 
+import cl.duoc.xyzbank.coredomain.accounts.domain.entities.Customer;
+import cl.duoc.xyzbank.coredomain.accounts.domain.repositories.CustomerRepository;
 import cl.duoc.xyzbank.coredomain.cards.domain.entities.Card;
 import cl.duoc.xyzbank.coredomain.shared.domain.DomainException;
 import cl.duoc.xyzbank.coredomain.shared.domain.Id;
@@ -25,7 +27,8 @@ class JpaCardRepositoryIT extends AbstractPostgresIT {
      * Cases:
      * 1. Saves a card and finds it by card number
      * 2. Returns empty when no card matches the card number
-     * 3. Rejects a save based on a stale version (optimistic lock conflict)
+     * 3. Returns empty for a malformed (non-UUID) card number, rather than throwing
+     * 4. Rejects a save based on a stale version (optimistic lock conflict)
      */
 
     private final PinHasher hasher = new PinHasher();
@@ -33,11 +36,20 @@ class JpaCardRepositoryIT extends AbstractPostgresIT {
     @Autowired
     private JpaCardRepository cardRepository;
 
+    @Autowired
+    private CustomerRepository customerRepository;
+
+    private Id newCustomer() {
+        Id customerId = Id.generate();
+        customerRepository.save(Customer.create(customerId, "Test Customer", "test.customer@xyzbank.cl"));
+        return customerId;
+    }
+
     @Test
     @DisplayName("saves a card and finds it by card number")
     void savesACardAndFindsItByCardNumber() {
         Id id = Id.generate();
-        Card card = Card.create(id, Id.generate(), hasher.hash("1234"), 0, false, 0L);
+        Card card = Card.create(id, newCustomer(), hasher.hash("1234"), 0, false, 0L);
 
         cardRepository.save(card);
         Optional<Card> found = cardRepository.findByCardNumber(id);
@@ -55,10 +67,18 @@ class JpaCardRepositoryIT extends AbstractPostgresIT {
     }
 
     @Test
+    @DisplayName("returns empty for a malformed (non-uuid) card number, rather than throwing")
+    void returnsEmptyForMalformedCardNumber() {
+        Optional<Card> found = cardRepository.findByCardNumber(Id.create("not-a-uuid"));
+
+        assertTrue(found.isEmpty());
+    }
+
+    @Test
     @DisplayName("rejects a save based on a stale version")
     void rejectsASaveBasedOnAStaleVersion() {
         Id id = Id.generate();
-        Card original = Card.create(id, Id.generate(), hasher.hash("1234"), 0, false, 0L);
+        Card original = Card.create(id, newCustomer(), hasher.hash("1234"), 0, false, 0L);
         cardRepository.save(original);
         Card firstCopy = cardRepository.findByCardNumber(id).orElseThrow();
         Card secondCopy = cardRepository.findByCardNumber(id).orElseThrow();
