@@ -40,7 +40,9 @@ class HeaderCallerContextAdapterTest {
 
         assertEquals("customer-1", callerContext.customerId());
         assertEquals(Channel.WEB, callerContext.channel());
-        assertEquals(Set.of("web:*"), callerContext.scopes());
+        assertEquals(
+                Set.of("web:accounts:read", "web:customers:read", "web:transactions:read", "web:interests:read"),
+                callerContext.scopes());
         assertEquals(Optional.empty(), callerContext.terminalId());
     }
 
@@ -59,7 +61,7 @@ class HeaderCallerContextAdapterTest {
 
         assertEquals("customer-2", callerContext.customerId());
         assertEquals(Channel.MOBILE, callerContext.channel());
-        assertEquals(Set.of("mobile:*"), callerContext.scopes());
+        assertEquals(Set.of("mobile:accounts:read", "mobile:transactions:read"), callerContext.scopes());
     }
 
     @Test

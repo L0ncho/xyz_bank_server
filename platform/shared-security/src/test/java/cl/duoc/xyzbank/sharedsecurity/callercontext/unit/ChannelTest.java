@@ -13,21 +13,23 @@ class ChannelTest {
 
     /*
      * Cases:
-     * 1. Web channel grants exactly web:*
-     * 2. Mobile channel grants exactly mobile:*
+     * 1. Web channel grants exactly the four enumerated web scopes
+     * 2. Mobile channel grants exactly the two enumerated mobile scopes
      * 3. ATM channel grants exactly atm:read-balance and atm:withdraw
      */
 
     @Test
-    @DisplayName("web channel grants exactly web:*")
-    void webChannelGrantsExactlyWebStar() {
-        assertEquals(Set.of("web:*"), Channel.WEB.scopes());
+    @DisplayName("web channel grants exactly the enumerated web scopes")
+    void webChannelGrantsExactlyTheEnumeratedWebScopes() {
+        assertEquals(
+                Set.of("web:accounts:read", "web:customers:read", "web:transactions:read", "web:interests:read"),
+                Channel.WEB.scopes());
     }
 
     @Test
-    @DisplayName("mobile channel grants exactly mobile:*")
-    void mobileChannelGrantsExactlyMobileStar() {
-        assertEquals(Set.of("mobile:*"), Channel.MOBILE.scopes());
+    @DisplayName("mobile channel grants exactly the enumerated mobile scopes")
+    void mobileChannelGrantsExactlyTheEnumeratedMobileScopes() {
+        assertEquals(Set.of("mobile:accounts:read", "mobile:transactions:read"), Channel.MOBILE.scopes());
     }
 
     @Test

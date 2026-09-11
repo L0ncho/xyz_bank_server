@@ -4,8 +4,8 @@ import java.util.Set;
 
 public enum Channel {
 
-    WEB(Set.of("web:*")),
-    MOBILE(Set.of("mobile:*")),
+    WEB(Set.of("web:accounts:read", "web:customers:read", "web:transactions:read", "web:interests:read")),
+    MOBILE(Set.of("mobile:accounts:read", "mobile:transactions:read")),
     ATM(Set.of("atm:read-balance", "atm:withdraw"));
 
     private final Set<String> scopes;
