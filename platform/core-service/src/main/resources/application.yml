@@ -19,6 +19,13 @@ app:
   withdrawals:
     daily-limit: 5000.00
 
+security:
+  pin-verification-tls:
+    port: 8453
+    keystore-path: ${TLS_PIN_KEYSTORE_PATH:classpath:tls/keystore.p12}
+    keystore-password: ${TLS_PIN_KEYSTORE_PASSWORD:xyzbank-dev}
+    keystore-type: PKCS12
+
 management:
   endpoints:
     web:
