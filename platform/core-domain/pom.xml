@@ -18,6 +18,11 @@
 
     <dependencies>
         <dependency>
+            <groupId>com.xyzbank</groupId>
+            <artifactId>shared-security</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
             <groupId>org.junit.jupiter</groupId>
             <artifactId>junit-jupiter</artifactId>
             <scope>test</scope>
