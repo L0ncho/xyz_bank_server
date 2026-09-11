@@ -1,6 +1,7 @@
 package cl.duoc.xyzbank.sharedsecurity.callercontext.unit;
 
 import cl.duoc.xyzbank.sharedsecurity.callercontext.CallerContext;
+import cl.duoc.xyzbank.sharedsecurity.callercontext.CallerIdentityException;
 import cl.duoc.xyzbank.sharedsecurity.callercontext.Channel;
 import cl.duoc.xyzbank.sharedsecurity.callercontext.JwtCallerContextAdapter;
 import io.jsonwebtoken.Claims;
@@ -22,6 +23,7 @@ import java.util.stream.Stream;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 @DisplayName("The JwtCallerContextAdapter")
@@ -38,6 +40,10 @@ class JwtCallerContextAdapterTest {
      * 7. Resolves a mobile token into a CallerContext with the mobile channel's exact scopes
      * 8. Resolves an ATM token into a CallerContext including its terminal id
      * 9. Resolves a web token into a CallerContext with no terminal id
+     * 10. Rejects a missing token
+     * 11. Rejects a malformed token
+     * 12. Rejects a token with an invalid signature
+     * 13. Rejects an expired token
      */
 
     private static final String SECRET = "unit-test-signing-secret-unit-test-signing-secret";
@@ -146,6 +152,38 @@ class JwtCallerContextAdapterTest {
         CallerContext callerContext = adapter.resolve(token);
 
         assertEquals(java.util.Optional.empty(), callerContext.terminalId());
+    }
+
+    @Test
+    @DisplayName("rejects a missing token")
+    void rejectsMissingToken() {
+        assertThrows(CallerIdentityException.class, () -> adapter.resolve(null));
+        assertThrows(CallerIdentityException.class, () -> adapter.resolve(""));
+    }
+
+    @Test
+    @DisplayName("rejects a malformed token")
+    void rejectsMalformedToken() {
+        assertThrows(CallerIdentityException.class, () -> adapter.resolve("not-a-jwt"));
+    }
+
+    @Test
+    @DisplayName("rejects a token with an invalid signature")
+    void rejectsTokenWithInvalidSignature() {
+        JwtCallerContextAdapter otherAdapter = new JwtCallerContextAdapter("a-completely-different-signing-secret");
+        String token = otherAdapter.issue("customer-1", Channel.WEB, null);
+
+        assertThrows(CallerIdentityException.class, () -> adapter.resolve(token));
+    }
+
+    @Test
+    @DisplayName("rejects an expired token")
+    void rejectsExpiredToken() {
+        JwtCallerContextAdapter fixedClockAdapter = new JwtCallerContextAdapter(
+                SECRET, Clock.fixed(FIXED_NOW, ZoneOffset.UTC));
+        String token = fixedClockAdapter.issue("customer-1", Channel.WEB, null);
+
+        assertThrows(CallerIdentityException.class, () -> adapter.resolve(token));
     }
 
     private Claims parseClaims(String token) {

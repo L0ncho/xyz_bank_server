@@ -2,6 +2,7 @@ package cl.duoc.xyzbank.sharedsecurity.callercontext;
 
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.JwtBuilder;
+import io.jsonwebtoken.JwtException;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
 
@@ -47,8 +48,21 @@ public final class JwtCallerContextAdapter {
     }
 
     public CallerContext resolve(String token) {
-        Claims claims = Jwts.parser().verifyWith(key).build().parseSignedClaims(token).getPayload();
-        Channel channel = Channel.valueOf(claims.get("channel", String.class));
+        if (token == null || token.isBlank()) {
+            throw CallerIdentityException.invalid("Token is required");
+        }
+        Claims claims;
+        try {
+            claims = Jwts.parser().verifyWith(key).build().parseSignedClaims(token).getPayload();
+        } catch (JwtException | IllegalArgumentException exception) {
+            throw CallerIdentityException.invalid("Invalid or expired token");
+        }
+        Channel channel;
+        try {
+            channel = Channel.valueOf(claims.get("channel", String.class));
+        } catch (IllegalArgumentException exception) {
+            throw CallerIdentityException.invalid("Unrecognized channel in token");
+        }
         String customerId = claims.getSubject();
         String terminalId = claims.get("terminalId", String.class);
         return new ResolvedCallerContext(customerId, channel, channel.scopes(), terminalId);
