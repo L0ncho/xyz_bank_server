@@ -6,6 +6,7 @@ import cl.duoc.xyzbank.coredomain.accounts.domain.valueobjects.Money;
 import cl.duoc.xyzbank.coredomain.accounts.unit.InMemoryAccountRepository;
 import cl.duoc.xyzbank.coredomain.shared.domain.Id;
 import cl.duoc.xyzbank.coredomain.transactions.domain.entities.Transaction;
+import cl.duoc.xyzbank.coredomain.transactions.domain.valueobjects.DateRange;
 import cl.duoc.xyzbank.coredomain.transactions.domain.valueobjects.TransactionType;
 import cl.duoc.xyzbank.coredomain.transactions.unit.InMemoryTransactionRepository;
 import cl.duoc.xyzbank.coreservice.auth.infrastructure.rest.EnforcementFilter;
@@ -20,6 +21,7 @@ import org.springframework.mock.web.MockHttpServletResponse;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -148,6 +150,25 @@ class OwnershipEnforcingTest {
     }
 
     @Test
+    @DisplayName("rejects a request for a well-formed but genuinely nonexistent account id as not-found")
+    void rejectsARequestForAWellFormedButNonexistentAccountIdAsNotFound() throws Exception {
+        String token = tokenAdapter.issue(Id.generate().getValue(), Channel.WEB, null);
+        MockHttpServletRequest request =
+                new MockHttpServletRequest("GET", "/internal/accounts/" + Id.generate().getValue() + "/balance");
+        request.addHeader("X-Service-Credential", "web-secret");
+        request.addHeader("Authorization", "Bearer " + token);
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        AtomicBoolean chainCalled = new AtomicBoolean(false);
+        FilterChain chain = (req, res) -> chainCalled.set(true);
+
+        filter().doFilter(request, response, chain);
+
+        assertFalse(chainCalled.get());
+        assertEquals(404, response.getStatus());
+        assertEquals("application/problem+json", response.getContentType());
+    }
+
+    @Test
     @DisplayName("rejects a non-owner's request for someone else's customer profile as not-found")
     void rejectsANonOwnersRequestForSomeoneElsesCustomerProfileAsNotFound() throws Exception {
         Id ownerId = Id.generate();
@@ -192,5 +213,38 @@ class OwnershipEnforcingTest {
         assertFalse(chainCalled.get());
         assertEquals(404, response.getStatus());
         assertEquals("application/problem+json", response.getContentType());
+    }
+
+    @Test
+    @DisplayName("rejects a non-owner's withdrawal against someone else's account before it ever executes, "
+            + "leaving the balance and transaction history untouched")
+    void rejectsANonOwnersWithdrawalBeforeItEverExecutes() throws Exception {
+        Id ownerId = Id.generate();
+        Account account = anAccountOwnedBy(ownerId);
+        Id nonOwnerId = Id.generate();
+        String atmToken = tokenAdapter.issue(nonOwnerId.getValue(), Channel.ATM, "terminal-1");
+        MockHttpServletRequest request = new MockHttpServletRequest(
+                "POST", "/internal/accounts/" + account.getId().getValue() + "/withdrawals");
+        request.addHeader("X-Service-Credential", "web-secret");
+        request.addHeader("Authorization", "Bearer " + atmToken);
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        AtomicBoolean chainCalled = new AtomicBoolean(false);
+        FilterChain chain = (req, res) -> chainCalled.set(true);
+
+        filter().doFilter(request, response, chain);
+
+        assertFalse(chainCalled.get(), "the withdrawal use case must never be dispatched to");
+        assertEquals(404, response.getStatus());
+        assertEquals("application/problem+json", response.getContentType());
+        assertEquals(
+                new BigDecimal("100.00"),
+                accountRepository.findById(account.getId()).orElseThrow().getBalance().getAmount());
+        assertTrue(
+                transactionRepository.findByAccountId(
+                                account.getId(), DateRange.create(Optional.empty(), Optional.empty()),
+                                Optional.empty(), Optional.empty(), 10)
+                        .getItems()
+                        .isEmpty(),
+                "no withdrawal transaction must be recorded");
     }
 }

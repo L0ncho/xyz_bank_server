@@ -117,28 +117,26 @@ public class EnforcementFilter extends OncePerRequestFilter {
         if (ownershipCheck.isEmpty()) {
             return true;
         }
-        Optional<String> ownerCustomerId = resolveOwnerCustomerId(ownershipCheck.get());
-        if (ownerCustomerId.isEmpty()) {
+        Id identifier;
+        try {
+            identifier = Id.create(ownershipCheck.get().identifierValue());
+        } catch (DomainException exception) {
             // A malformed identifier is a format-validation concern for the controller
-            // (422), not an ownership concern; a well-formed but unknown one is
-            // indistinguishable, from the caller's perspective, from one it doesn't own.
+            // (422), not an ownership concern.
             return true;
         }
-        if (!ownerCustomerId.get().equals(callerContext.customerId())) {
+        Optional<String> ownerCustomerId = resolveOwnerCustomerId(ownershipCheck.get().type(), identifier);
+        // A well-formed but unknown identifier is indistinguishable, from the caller's
+        // perspective, from one it doesn't own: both are rejected as not-found here.
+        if (ownerCustomerId.isEmpty() || !ownerCustomerId.get().equals(callerContext.customerId())) {
             rejectNotFound(request, response);
             return false;
         }
         return true;
     }
 
-    private Optional<String> resolveOwnerCustomerId(OwnershipCheck ownershipCheck) {
-        Id identifier;
-        try {
-            identifier = Id.create(ownershipCheck.identifierValue());
-        } catch (DomainException exception) {
-            return Optional.empty();
-        }
-        return switch (ownershipCheck.type()) {
+    private Optional<String> resolveOwnerCustomerId(IdentifierType type, Id identifier) {
+        return switch (type) {
             case IdentifierType.CUSTOMER_ID -> Optional.of(identifier.getValue());
             case IdentifierType.ACCOUNT_ID ->
                 accountRepository.findById(identifier).map(Account::getCustomerId).map(Id::getValue);
