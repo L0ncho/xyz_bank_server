@@ -1,7 +1,7 @@
 package cl.duoc.xyzbank.coredomain.cards.domain.entities;
 
+import cl.duoc.xyzbank.coredomain.cards.domain.services.PinHasher;
 import cl.duoc.xyzbank.coredomain.shared.domain.Id;
-import cl.duoc.xyzbank.sharedsecurity.callercontext.PinHasher;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -20,12 +20,14 @@ class CardTest {
      * 5. A locked card rejects even a correct PIN, without changing the failure count
      */
 
-    private final PinHasher hasher = new PinHasher();
+    private final cl.duoc.xyzbank.sharedsecurity.callercontext.PinHasher bcryptHasher =
+            new cl.duoc.xyzbank.sharedsecurity.callercontext.PinHasher();
+    private final PinHasher hasher = bcryptHasher::matches;
 
     @Test
     @DisplayName("correct pin succeeds and resets the consecutive-failure count to zero")
     void correctPinSucceedsAndResetsFailureCount() {
-        Card card = Card.create(Id.generate(), Id.generate(), hasher.hash("1234"), 2, false, 0L);
+        Card card = Card.create(Id.generate(), Id.generate(), bcryptHasher.hash("1234"), 2, false, 0L);
 
         Card.PinVerificationResult result = card.verifyPin("1234", hasher);
 
@@ -36,7 +38,7 @@ class CardTest {
     @Test
     @DisplayName("incorrect pin fails and increments the consecutive-failure count")
     void incorrectPinFailsAndIncrementsFailureCount() {
-        Card card = Card.create(Id.generate(), Id.generate(), hasher.hash("1234"), 0, false, 0L);
+        Card card = Card.create(Id.generate(), Id.generate(), bcryptHasher.hash("1234"), 0, false, 0L);
 
         Card.PinVerificationResult result = card.verifyPin("9999", hasher);
 
@@ -47,7 +49,7 @@ class CardTest {
     @Test
     @DisplayName("exposes the version it was created with")
     void exposesVersion() {
-        Card card = Card.create(Id.generate(), Id.generate(), hasher.hash("1234"), 0, false, 7L);
+        Card card = Card.create(Id.generate(), Id.generate(), bcryptHasher.hash("1234"), 0, false, 7L);
 
         assertEquals(7L, card.getVersion());
     }
@@ -55,7 +57,7 @@ class CardTest {
     @Test
     @DisplayName("a third consecutive failure locks the card")
     void thirdConsecutiveFailureLocksCard() {
-        Card card = Card.create(Id.generate(), Id.generate(), hasher.hash("1234"), 2, false, 0L);
+        Card card = Card.create(Id.generate(), Id.generate(), bcryptHasher.hash("1234"), 2, false, 0L);
 
         Card.PinVerificationResult result = card.verifyPin("9999", hasher);
 
@@ -67,7 +69,7 @@ class CardTest {
     @Test
     @DisplayName("a locked card rejects even a correct pin, without changing the failure count")
     void lockedCardRejectsCorrectPin() {
-        Card card = Card.create(Id.generate(), Id.generate(), hasher.hash("1234"), 3, true, 0L);
+        Card card = Card.create(Id.generate(), Id.generate(), bcryptHasher.hash("1234"), 3, true, 0L);
 
         Card.PinVerificationResult result = card.verifyPin("1234", hasher);
 

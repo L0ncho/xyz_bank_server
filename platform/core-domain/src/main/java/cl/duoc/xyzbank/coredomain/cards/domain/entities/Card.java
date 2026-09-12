@@ -1,7 +1,7 @@
 package cl.duoc.xyzbank.coredomain.cards.domain.entities;
 
+import cl.duoc.xyzbank.coredomain.cards.domain.services.PinHasher;
 import cl.duoc.xyzbank.coredomain.shared.domain.Id;
-import cl.duoc.xyzbank.sharedsecurity.callercontext.PinHasher;
 
 public final class Card {
 

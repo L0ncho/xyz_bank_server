@@ -2,9 +2,9 @@ package cl.duoc.xyzbank.coreservice.auth.application.usecases;
 
 import cl.duoc.xyzbank.coredomain.cards.domain.entities.Card;
 import cl.duoc.xyzbank.coredomain.cards.domain.repositories.CardRepository;
+import cl.duoc.xyzbank.coredomain.cards.domain.services.PinHasher;
 import cl.duoc.xyzbank.coredomain.shared.domain.Id;
 import cl.duoc.xyzbank.coreservice.auth.application.dto.PinVerificationOutcome;
-import cl.duoc.xyzbank.sharedsecurity.callercontext.PinHasher;
 
 public class VerifyPinUseCase {
 
@@ -19,13 +19,22 @@ public class VerifyPinUseCase {
     public PinVerificationOutcome execute(String cardNumber, String pin) {
         return cardRepository.findByCardNumber(Id.create(cardNumber))
                 .map(card -> verify(card, pin))
-                .orElse(new PinVerificationOutcome(Card.PinVerificationResult.INCORRECT, null));
+                .orElse(new PinVerificationOutcome(PinVerificationOutcome.Result.INCORRECT, null));
     }
 
     private PinVerificationOutcome verify(Card card, String pin) {
-        Card.PinVerificationResult result = card.verifyPin(pin, pinHasher);
+        Card.PinVerificationResult cardResult = card.verifyPin(pin, pinHasher);
         cardRepository.save(card);
-        String customerId = result == Card.PinVerificationResult.SUCCESS ? card.getCustomerId().getValue() : null;
+        PinVerificationOutcome.Result result = toOutcomeResult(cardResult);
+        String customerId = result == PinVerificationOutcome.Result.SUCCESS ? card.getCustomerId().getValue() : null;
         return new PinVerificationOutcome(result, customerId);
+    }
+
+    private static PinVerificationOutcome.Result toOutcomeResult(Card.PinVerificationResult cardResult) {
+        return switch (cardResult) {
+            case SUCCESS -> PinVerificationOutcome.Result.SUCCESS;
+            case INCORRECT -> PinVerificationOutcome.Result.INCORRECT;
+            case LOCKED -> PinVerificationOutcome.Result.LOCKED;
+        };
     }
 }

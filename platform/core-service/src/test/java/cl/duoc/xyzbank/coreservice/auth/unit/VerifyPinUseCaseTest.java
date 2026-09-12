@@ -2,10 +2,10 @@ package cl.duoc.xyzbank.coreservice.auth.unit;
 
 import cl.duoc.xyzbank.coredomain.auth.unit.InMemoryCardRepository;
 import cl.duoc.xyzbank.coredomain.cards.domain.entities.Card;
+import cl.duoc.xyzbank.coredomain.cards.domain.services.PinHasher;
 import cl.duoc.xyzbank.coredomain.shared.domain.Id;
 import cl.duoc.xyzbank.coreservice.auth.application.dto.PinVerificationOutcome;
 import cl.duoc.xyzbank.coreservice.auth.application.usecases.VerifyPinUseCase;
-import cl.duoc.xyzbank.sharedsecurity.callercontext.PinHasher;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -25,7 +25,9 @@ class VerifyPinUseCaseTest {
      * 5. A locked card rejects a subsequent correct PIN
      */
 
-    private final PinHasher hasher = new PinHasher();
+    private final cl.duoc.xyzbank.sharedsecurity.callercontext.PinHasher bcryptHasher =
+            new cl.duoc.xyzbank.sharedsecurity.callercontext.PinHasher();
+    private final PinHasher hasher = bcryptHasher::matches;
     private final InMemoryCardRepository cardRepository = new InMemoryCardRepository();
     private final VerifyPinUseCase useCase = new VerifyPinUseCase(cardRepository, hasher);
 
@@ -34,11 +36,11 @@ class VerifyPinUseCaseTest {
     void correctPinSucceedsAndResetsFailureCount() {
         Id cardNumber = Id.generate();
         Id customerId = Id.generate();
-        cardRepository.save(Card.create(cardNumber, customerId, hasher.hash("1234"), 2, false, 0L));
+        cardRepository.save(Card.create(cardNumber, customerId, bcryptHasher.hash("1234"), 2, false, 0L));
 
         PinVerificationOutcome outcome = useCase.execute(cardNumber.getValue(), "1234");
 
-        assertEquals(Card.PinVerificationResult.SUCCESS, outcome.result());
+        assertEquals(PinVerificationOutcome.Result.SUCCESS, outcome.result());
         assertEquals(customerId.getValue(), outcome.customerId());
         assertEquals(0, cardRepository.findByCardNumber(cardNumber).orElseThrow().getConsecutiveFailures());
     }
@@ -47,11 +49,11 @@ class VerifyPinUseCaseTest {
     @DisplayName("an incorrect pin fails and increments the card's failure count")
     void incorrectPinFailsAndIncrementsFailureCount() {
         Id cardNumber = Id.generate();
-        cardRepository.save(Card.create(cardNumber, Id.generate(), hasher.hash("1234"), 0, false, 0L));
+        cardRepository.save(Card.create(cardNumber, Id.generate(), bcryptHasher.hash("1234"), 0, false, 0L));
 
         PinVerificationOutcome outcome = useCase.execute(cardNumber.getValue(), "9999");
 
-        assertEquals(Card.PinVerificationResult.INCORRECT, outcome.result());
+        assertEquals(PinVerificationOutcome.Result.INCORRECT, outcome.result());
         assertNull(outcome.customerId());
         assertEquals(1, cardRepository.findByCardNumber(cardNumber).orElseThrow().getConsecutiveFailures());
     }
@@ -61,7 +63,7 @@ class VerifyPinUseCaseTest {
     void unknownCardNumberFailsIdenticallyToIncorrectPin() {
         PinVerificationOutcome outcome = useCase.execute(Id.generate().getValue(), "1234");
 
-        assertEquals(Card.PinVerificationResult.INCORRECT, outcome.result());
+        assertEquals(PinVerificationOutcome.Result.INCORRECT, outcome.result());
         assertNull(outcome.customerId());
     }
 
@@ -69,11 +71,11 @@ class VerifyPinUseCaseTest {
     @DisplayName("a third consecutive failure locks the card")
     void thirdConsecutiveFailureLocksCard() {
         Id cardNumber = Id.generate();
-        cardRepository.save(Card.create(cardNumber, Id.generate(), hasher.hash("1234"), 2, false, 0L));
+        cardRepository.save(Card.create(cardNumber, Id.generate(), bcryptHasher.hash("1234"), 2, false, 0L));
 
         PinVerificationOutcome outcome = useCase.execute(cardNumber.getValue(), "9999");
 
-        assertEquals(Card.PinVerificationResult.LOCKED, outcome.result());
+        assertEquals(PinVerificationOutcome.Result.LOCKED, outcome.result());
         assertNull(outcome.customerId());
         assertTrue(cardRepository.findByCardNumber(cardNumber).orElseThrow().isLocked());
     }
@@ -82,11 +84,11 @@ class VerifyPinUseCaseTest {
     @DisplayName("a locked card rejects a subsequent correct pin")
     void lockedCardRejectsSubsequentCorrectPin() {
         Id cardNumber = Id.generate();
-        cardRepository.save(Card.create(cardNumber, Id.generate(), hasher.hash("1234"), 3, true, 0L));
+        cardRepository.save(Card.create(cardNumber, Id.generate(), bcryptHasher.hash("1234"), 3, true, 0L));
 
         PinVerificationOutcome outcome = useCase.execute(cardNumber.getValue(), "1234");
 
-        assertEquals(Card.PinVerificationResult.LOCKED, outcome.result());
+        assertEquals(PinVerificationOutcome.Result.LOCKED, outcome.result());
         assertNull(outcome.customerId());
     }
 }

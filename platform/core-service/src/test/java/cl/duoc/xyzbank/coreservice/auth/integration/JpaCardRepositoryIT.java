@@ -5,8 +5,8 @@ import cl.duoc.xyzbank.coredomain.accounts.domain.repositories.CustomerRepositor
 import cl.duoc.xyzbank.coredomain.cards.domain.entities.Card;
 import cl.duoc.xyzbank.coredomain.shared.domain.DomainException;
 import cl.duoc.xyzbank.coredomain.shared.domain.Id;
+import cl.duoc.xyzbank.coredomain.cards.domain.services.PinHasher;
 import cl.duoc.xyzbank.coreservice.auth.infrastructure.persistence.JpaCardRepository;
-import cl.duoc.xyzbank.sharedsecurity.callercontext.PinHasher;
 import cl.duoc.xyzbank.testsupport.AbstractPostgresIT;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -31,7 +31,9 @@ class JpaCardRepositoryIT extends AbstractPostgresIT {
      * 4. Rejects a save based on a stale version (optimistic lock conflict)
      */
 
-    private final PinHasher hasher = new PinHasher();
+    private final cl.duoc.xyzbank.sharedsecurity.callercontext.PinHasher bcryptHasher =
+            new cl.duoc.xyzbank.sharedsecurity.callercontext.PinHasher();
+    private final PinHasher hasher = bcryptHasher::matches;
 
     @Autowired
     private JpaCardRepository cardRepository;
@@ -49,7 +51,7 @@ class JpaCardRepositoryIT extends AbstractPostgresIT {
     @DisplayName("saves a card and finds it by card number")
     void savesACardAndFindsItByCardNumber() {
         Id id = Id.generate();
-        Card card = Card.create(id, newCustomer(), hasher.hash("1234"), 0, false, 0L);
+        Card card = Card.create(id, newCustomer(), bcryptHasher.hash("1234"), 0, false, 0L);
 
         cardRepository.save(card);
         Optional<Card> found = cardRepository.findByCardNumber(id);
@@ -78,7 +80,7 @@ class JpaCardRepositoryIT extends AbstractPostgresIT {
     @DisplayName("rejects a save based on a stale version")
     void rejectsASaveBasedOnAStaleVersion() {
         Id id = Id.generate();
-        Card original = Card.create(id, newCustomer(), hasher.hash("1234"), 0, false, 0L);
+        Card original = Card.create(id, newCustomer(), bcryptHasher.hash("1234"), 0, false, 0L);
         cardRepository.save(original);
         Card firstCopy = cardRepository.findByCardNumber(id).orElseThrow();
         Card secondCopy = cardRepository.findByCardNumber(id).orElseThrow();
