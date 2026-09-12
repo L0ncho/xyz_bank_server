@@ -3,12 +3,14 @@ package cl.duoc.xyzbank.coreservice.auth.unit;
 import cl.duoc.xyzbank.coredomain.auth.unit.InMemoryCardRepository;
 import cl.duoc.xyzbank.coredomain.cards.domain.entities.Card;
 import cl.duoc.xyzbank.coredomain.shared.domain.Id;
+import cl.duoc.xyzbank.coreservice.auth.application.dto.PinVerificationOutcome;
 import cl.duoc.xyzbank.coreservice.auth.application.usecases.VerifyPinUseCase;
 import cl.duoc.xyzbank.sharedsecurity.callercontext.PinHasher;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 @DisplayName("The VerifyPin use case")
@@ -16,7 +18,7 @@ class VerifyPinUseCaseTest {
 
     /*
      * Cases:
-     * 1. A correct PIN succeeds and resets the card's failure count
+     * 1. A correct PIN succeeds, resets the card's failure count, and reports the owning customer id
      * 2. An incorrect PIN fails and increments the card's failure count
      * 3. An unknown card number fails identically to an incorrect PIN (no existence oracle)
      * 4. A third consecutive failure locks the card and is reported distinctly from a plain incorrect PIN
@@ -28,14 +30,16 @@ class VerifyPinUseCaseTest {
     private final VerifyPinUseCase useCase = new VerifyPinUseCase(cardRepository, hasher);
 
     @Test
-    @DisplayName("a correct pin succeeds and resets the card's failure count")
+    @DisplayName("a correct pin succeeds, resets the card's failure count, and reports the owning customer id")
     void correctPinSucceedsAndResetsFailureCount() {
         Id cardNumber = Id.generate();
-        cardRepository.save(Card.create(cardNumber, Id.generate(), hasher.hash("1234"), 2, false, 0L));
+        Id customerId = Id.generate();
+        cardRepository.save(Card.create(cardNumber, customerId, hasher.hash("1234"), 2, false, 0L));
 
-        Card.PinVerificationResult result = useCase.execute(cardNumber.getValue(), "1234");
+        PinVerificationOutcome outcome = useCase.execute(cardNumber.getValue(), "1234");
 
-        assertEquals(Card.PinVerificationResult.SUCCESS, result);
+        assertEquals(Card.PinVerificationResult.SUCCESS, outcome.result());
+        assertEquals(customerId.getValue(), outcome.customerId());
         assertEquals(0, cardRepository.findByCardNumber(cardNumber).orElseThrow().getConsecutiveFailures());
     }
 
@@ -45,18 +49,20 @@ class VerifyPinUseCaseTest {
         Id cardNumber = Id.generate();
         cardRepository.save(Card.create(cardNumber, Id.generate(), hasher.hash("1234"), 0, false, 0L));
 
-        Card.PinVerificationResult result = useCase.execute(cardNumber.getValue(), "9999");
+        PinVerificationOutcome outcome = useCase.execute(cardNumber.getValue(), "9999");
 
-        assertEquals(Card.PinVerificationResult.INCORRECT, result);
+        assertEquals(Card.PinVerificationResult.INCORRECT, outcome.result());
+        assertNull(outcome.customerId());
         assertEquals(1, cardRepository.findByCardNumber(cardNumber).orElseThrow().getConsecutiveFailures());
     }
 
     @Test
     @DisplayName("an unknown card number fails identically to an incorrect pin")
     void unknownCardNumberFailsIdenticallyToIncorrectPin() {
-        Card.PinVerificationResult result = useCase.execute(Id.generate().getValue(), "1234");
+        PinVerificationOutcome outcome = useCase.execute(Id.generate().getValue(), "1234");
 
-        assertEquals(Card.PinVerificationResult.INCORRECT, result);
+        assertEquals(Card.PinVerificationResult.INCORRECT, outcome.result());
+        assertNull(outcome.customerId());
     }
 
     @Test
@@ -65,9 +71,10 @@ class VerifyPinUseCaseTest {
         Id cardNumber = Id.generate();
         cardRepository.save(Card.create(cardNumber, Id.generate(), hasher.hash("1234"), 2, false, 0L));
 
-        Card.PinVerificationResult result = useCase.execute(cardNumber.getValue(), "9999");
+        PinVerificationOutcome outcome = useCase.execute(cardNumber.getValue(), "9999");
 
-        assertEquals(Card.PinVerificationResult.LOCKED, result);
+        assertEquals(Card.PinVerificationResult.LOCKED, outcome.result());
+        assertNull(outcome.customerId());
         assertTrue(cardRepository.findByCardNumber(cardNumber).orElseThrow().isLocked());
     }
 
@@ -77,8 +84,9 @@ class VerifyPinUseCaseTest {
         Id cardNumber = Id.generate();
         cardRepository.save(Card.create(cardNumber, Id.generate(), hasher.hash("1234"), 3, true, 0L));
 
-        Card.PinVerificationResult result = useCase.execute(cardNumber.getValue(), "1234");
+        PinVerificationOutcome outcome = useCase.execute(cardNumber.getValue(), "1234");
 
-        assertEquals(Card.PinVerificationResult.LOCKED, result);
+        assertEquals(Card.PinVerificationResult.LOCKED, outcome.result());
+        assertNull(outcome.customerId());
     }
 }

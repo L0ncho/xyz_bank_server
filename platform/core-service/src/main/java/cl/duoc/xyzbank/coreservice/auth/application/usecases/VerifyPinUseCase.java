@@ -3,6 +3,7 @@ package cl.duoc.xyzbank.coreservice.auth.application.usecases;
 import cl.duoc.xyzbank.coredomain.cards.domain.entities.Card;
 import cl.duoc.xyzbank.coredomain.cards.domain.repositories.CardRepository;
 import cl.duoc.xyzbank.coredomain.shared.domain.Id;
+import cl.duoc.xyzbank.coreservice.auth.application.dto.PinVerificationOutcome;
 import cl.duoc.xyzbank.sharedsecurity.callercontext.PinHasher;
 
 public class VerifyPinUseCase {
@@ -15,15 +16,16 @@ public class VerifyPinUseCase {
         this.pinHasher = pinHasher;
     }
 
-    public Card.PinVerificationResult execute(String cardNumber, String pin) {
+    public PinVerificationOutcome execute(String cardNumber, String pin) {
         return cardRepository.findByCardNumber(Id.create(cardNumber))
                 .map(card -> verify(card, pin))
-                .orElse(Card.PinVerificationResult.INCORRECT);
+                .orElse(new PinVerificationOutcome(Card.PinVerificationResult.INCORRECT, null));
     }
 
-    private Card.PinVerificationResult verify(Card card, String pin) {
+    private PinVerificationOutcome verify(Card card, String pin) {
         Card.PinVerificationResult result = card.verifyPin(pin, pinHasher);
         cardRepository.save(card);
-        return result;
+        String customerId = result == Card.PinVerificationResult.SUCCESS ? card.getCustomerId().getValue() : null;
+        return new PinVerificationOutcome(result, customerId);
     }
 }

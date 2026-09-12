@@ -61,12 +61,15 @@ class PinVerificationControllerE2ETest extends AbstractPostgresIT {
         ((Logger) LoggerFactory.getLogger(Logger.ROOT_LOGGER_NAME)).detachAppender(logAppender);
     }
 
-    private Id seedCard(int consecutiveFailures, boolean locked) {
+    private record SeededCard(Id cardNumber, Id customerId) {
+    }
+
+    private SeededCard seedCard(int consecutiveFailures, boolean locked) {
         Id customerId = Id.generate();
         customerRepository.save(Customer.create(customerId, "Test Customer", "test.customer@xyzbank.cl"));
         Id cardNumber = Id.generate();
         cardRepository.save(Card.create(cardNumber, customerId, hasher.hash(PIN), consecutiveFailures, locked, 0L));
-        return cardNumber;
+        return new SeededCard(cardNumber, customerId);
     }
 
     private Response verify(int tlsPort, String cardNumber, String pin) {
@@ -81,22 +84,22 @@ class PinVerificationControllerE2ETest extends AbstractPostgresIT {
     }
 
     @Test
-    @DisplayName("correct pin returns 200")
+    @DisplayName("correct pin returns 200 with the owning customer id")
     void correctPinReturns200() {
-        Id cardNumber = seedCard(0, false);
+        SeededCard seededCard = seedCard(0, false);
 
-        Response response = verify(8453, cardNumber.getValue(), PIN);
+        Response response = verify(8453, seededCard.cardNumber().getValue(), PIN);
 
-        response.then().statusCode(200);
+        response.then().statusCode(200).body("customerId", org.hamcrest.Matchers.equalTo(seededCard.customerId().getValue()));
         assertPinNeverLeaked(response);
     }
 
     @Test
     @DisplayName("incorrect pin returns 401")
     void incorrectPinReturns401() {
-        Id cardNumber = seedCard(0, false);
+        SeededCard seededCard = seedCard(0, false);
 
-        Response response = verify(8453, cardNumber.getValue(), WRONG_PIN);
+        Response response = verify(8453, seededCard.cardNumber().getValue(), WRONG_PIN);
 
         response.then().statusCode(401);
         assertPinNeverLeaked(response);
@@ -105,21 +108,21 @@ class PinVerificationControllerE2ETest extends AbstractPostgresIT {
     @Test
     @DisplayName("third consecutive incorrect pin locks the card and returns 423")
     void thirdConsecutiveIncorrectPinLocksCardAndReturns423() {
-        Id cardNumber = seedCard(2, false);
+        SeededCard seededCard = seedCard(2, false);
 
-        Response response = verify(8453, cardNumber.getValue(), WRONG_PIN);
+        Response response = verify(8453, seededCard.cardNumber().getValue(), WRONG_PIN);
 
         response.then().statusCode(423);
-        assertTrue(cardRepository.findByCardNumber(cardNumber).orElseThrow().isLocked());
+        assertTrue(cardRepository.findByCardNumber(seededCard.cardNumber()).orElseThrow().isLocked());
         assertPinNeverLeaked(response);
     }
 
     @Test
     @DisplayName("locked card rejects a correct pin with 423")
     void lockedCardRejectsCorrectPinWith423() {
-        Id cardNumber = seedCard(3, true);
+        SeededCard seededCard = seedCard(3, true);
 
-        Response response = verify(8453, cardNumber.getValue(), PIN);
+        Response response = verify(8453, seededCard.cardNumber().getValue(), PIN);
 
         response.then().statusCode(423);
         assertPinNeverLeaked(response);
