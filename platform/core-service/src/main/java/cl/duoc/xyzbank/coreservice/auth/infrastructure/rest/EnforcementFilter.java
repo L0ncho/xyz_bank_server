@@ -1,5 +1,8 @@
 package cl.duoc.xyzbank.coreservice.auth.infrastructure.rest;
 
+import cl.duoc.xyzbank.sharedsecurity.callercontext.CallerContext;
+import cl.duoc.xyzbank.sharedsecurity.callercontext.CallerIdentityException;
+import cl.duoc.xyzbank.sharedsecurity.callercontext.JwtCallerContextAdapter;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -9,25 +12,33 @@ import org.springframework.http.MediaType;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
+import java.util.Collections;
 import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
 
 /**
- * Authenticates the calling service (and, for domain endpoints, the user's scope and
- * resource ownership) on every core-service internal endpoint. Gated by
- * security.enforcement.enabled: while disabled, every request passes through unchanged,
- * matching core-service's pre-channel-auth behavior, so this change can roll out without
- * an intermediate state where core-service rejects a BFF that hasn't been updated yet.
+ * Authenticates the calling service and, for domain endpoints, checks the caller's scope
+ * (resource ownership is enforced downstream). Gated by security.enforcement.enabled:
+ * while disabled, every request passes through unchanged, matching core-service's
+ * pre-channel-auth behavior, so this change can roll out without an intermediate state
+ * where core-service rejects a BFF that hasn't been updated yet.
  */
 public class EnforcementFilter extends OncePerRequestFilter {
 
     private static final String SERVICE_CREDENTIAL_HEADER = "X-Service-Credential";
+    private static final String AUTHORIZATION_HEADER = "Authorization";
+    private static final String BEARER_PREFIX = "Bearer ";
 
     private final boolean enabled;
     private final Map<String, String> serviceCredentials;
+    private final JwtCallerContextAdapter tokenAdapter;
 
-    public EnforcementFilter(boolean enabled, Map<String, String> serviceCredentials) {
+    public EnforcementFilter(
+            boolean enabled, Map<String, String> serviceCredentials, JwtCallerContextAdapter tokenAdapter) {
         this.enabled = enabled;
         this.serviceCredentials = serviceCredentials;
+        this.tokenAdapter = tokenAdapter;
     }
 
     @Override
@@ -42,7 +53,41 @@ public class EnforcementFilter extends OncePerRequestFilter {
             reject(response, HttpStatus.UNAUTHORIZED, "A valid service credential is required");
             return;
         }
+        Optional<Set<String>> requiredScopes =
+                DomainEndpointScopes.requiredScopesFor(request.getMethod(), request.getRequestURI());
+        if (requiredScopes.isPresent() && !hasSufficientScope(request, requiredScopes.get(), response)) {
+            return;
+        }
         filterChain.doFilter(request, response);
+    }
+
+    private boolean hasSufficientScope(
+            HttpServletRequest request, Set<String> requiredScopes, HttpServletResponse response) throws IOException {
+        String bearerToken = extractBearerToken(request);
+        if (bearerToken == null) {
+            reject(response, HttpStatus.UNAUTHORIZED, "A valid user token is required");
+            return false;
+        }
+        CallerContext callerContext;
+        try {
+            callerContext = tokenAdapter.resolve(bearerToken);
+        } catch (CallerIdentityException exception) {
+            reject(response, HttpStatus.UNAUTHORIZED, "A valid user token is required");
+            return false;
+        }
+        if (Collections.disjoint(callerContext.scopes(), requiredScopes)) {
+            reject(response, HttpStatus.FORBIDDEN, "The token's scope does not permit this operation");
+            return false;
+        }
+        return true;
+    }
+
+    private String extractBearerToken(HttpServletRequest request) {
+        String header = request.getHeader(AUTHORIZATION_HEADER);
+        if (header == null || !header.startsWith(BEARER_PREFIX)) {
+            return null;
+        }
+        return header.substring(BEARER_PREFIX.length());
     }
 
     private boolean isKnownServiceCredential(String presented) {

@@ -7,8 +7,10 @@ import cl.duoc.xyzbank.coreservice.auth.application.usecases.RevokeDeviceUseCase
 import cl.duoc.xyzbank.coreservice.auth.application.usecases.RotateMobileRefreshTokenUseCase;
 import cl.duoc.xyzbank.coreservice.auth.application.usecases.RotateWebRefreshTokenUseCase;
 import cl.duoc.xyzbank.coreservice.auth.application.usecases.VerifyPinUseCase;
+import cl.duoc.xyzbank.sharedsecurity.callercontext.JwtCallerContextAdapter;
 import cl.duoc.xyzbank.sharedsecurity.callercontext.OpaqueTokenGenerator;
 import cl.duoc.xyzbank.sharedsecurity.callercontext.PinHasher;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -18,6 +20,12 @@ public class AuthConfig {
     @Bean
     public PinHasher pinHasher() {
         return new PinHasher();
+    }
+
+    @Bean
+    public JwtCallerContextAdapter jwtCallerContextAdapter(
+            @Value("${channel-auth.jwt.secret}") String jwtSecret) {
+        return new JwtCallerContextAdapter(jwtSecret);
     }
 
     @Bean
