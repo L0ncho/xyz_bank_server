@@ -2,7 +2,9 @@
 
 Plataforma BFF de XYZ Bank: tres backends por canal (`bff-web`, `bff-mobile`, `bff-atm`) frente a un `core-service` interno, más un job de migración CSV hacia MySQL.
 
-**Esto no está listo para producción.** No hay autenticación ni autorización. Los BFFs confían en cabeceras (`X-Customer-Id`, `X-Channel` y, en ATM, `X-Terminal-Id`). Cualquier cliente que envíe esas cabeceras es tratado como ese cliente. El modelo de identidad actual es temporal.
+**Autenticación y HTTPS están implementadas con configuración de desarrollo.** Cada canal se autentica con una credencial real — cookie de sesión (web), JWT de dispositivo (mobile), o certificado mTLS del terminal más un PIN de tarjeta (ATM) — pero todo el material de confianza es de dev/test: un proveedor OIDC simulado (mock, ver `platform/*/src/test/.../MockOidcProvider`), un secreto de firma de sesión fijo, credenciales de servicio por BFF fijas, y una CA de desarrollo autofirmada (`scripts/generate-dev-tls-certs.sh`). Antes de un despliegue real hace falta: un IdP externo real, una CA gestionada que emita certificados reales, y credenciales de servicio rotadas por BFF.
+
+El login de `bff-web`/`bff-mobile` pasa por ese proveedor OIDC simulado, que solo existe como fixture de test (WireMock, arrancado por los propios tests) — no corre como servicio dentro de `docker compose up`. Por eso los ejemplos de `curl` de este README no incluyen el login completo de web/mobile: se pueden ejercitar levantando ese fixture vía los tests (`mvn test` en `bff-web`/`bff-mobile`), o conectando un proveedor OIDC real. El flujo de ATM (verificación de PIN) no depende de ningún proveedor externo y sí es 100% ejecutable contra el stack de `docker compose`, como se muestra más abajo.
 
 ## Prerrequisitos
 
@@ -20,7 +22,7 @@ flowchart LR
     AtmClient[ATM client]
   end
 
-  subgraph bffs [BFFs - header CallerContext temporary]
+  subgraph bffs [BFFs]
     BffWeb[bff-web :8081]
     BffMobile[bff-mobile :8082]
     BffAtm[bff-atm :8083]
@@ -87,48 +89,87 @@ docker compose exec mysql mysql -umigration -pmigration xyz_bank_migration -e "S
 
 `status = SUCCESS` en `migration_executions` para `dailyTransactionsJob`, `monthlyInterestsJob` y `annualGenerationJob` indica que el job ya corrió. Un segundo `docker compose up` reutiliza el volumen y el job vuelve a salir 0 (ya migrado).
 
+## Certificados TLS de desarrollo
+
+Los tres BFFs sirven HTTPS con certificados de una CA de desarrollo autofirmada; `bff-atm` además exige un certificado de cliente (mTLS) del terminal. `core-service` es plano HTTP salvo su conector de verificación de PIN (puerto 8453), que es TLS-only por diseño — ver `docs/contracts/core-service/openapi.yaml`.
+
+Generar (o regenerar) la CA y todos los certificados:
+
+```bash
+./scripts/generate-dev-tls-certs.sh
+```
+
+Esto escribe `dev/certs/` (montado por `docker-compose.yml`) y una copia bajo `src/test/resources/tls/` en cada módulo que la necesita. Es dev-only: nunca reutilices esta CA en un entorno real.
+
+Para que `curl` acepte la cadena autofirmada sin desactivar la validación, pásale la CA con `--cacert dev/certs/ca.crt` (todos los ejemplos de abajo lo hacen); alternativamente, `-k` la ignora por completo. Para confiar en la CA a nivel de sistema/navegador (útil para abrir `bff-web` en un navegador):
+
+```bash
+# macOS
+security add-trusted-cert -d -r trustRoot -k ~/Library/Keychains/login.keychain-db dev/certs/ca.crt
+
+# Linux (Debian/Ubuntu)
+sudo cp dev/certs/ca.crt /usr/local/share/ca-certificates/xyz-bank-dev-ca.crt && sudo update-ca-certificates
+```
+
 ## Ejemplos de curl
 
-Sustituye nada: estos IDs coinciden con el seed.
+Sustituye nada: estos IDs coinciden con el seed. El login OIDC de `bff-web`/`bff-mobile` no es ejercitable contra este stack (ver nota arriba); el flujo completo de ATM sí lo es.
 
-**bff-web — dashboard**
+**bff-atm — verificar PIN, consultar saldo y retirar**
 
-```bash
-curl -sS http://localhost:8081/customers/11111111-1111-1111-1111-111111111111/dashboard \
-  -H "X-Customer-Id: 11111111-1111-1111-1111-111111111111" \
-  -H "X-Channel: web"
-```
-
-**bff-mobile — resumen de cuenta**
+La tarjeta demo (PIN `1234`) pertenece al cliente/cuenta del seed. Cada request debe presentar el certificado de cliente del terminal (mTLS):
 
 ```bash
-curl -sS http://localhost:8082/accounts/22222222-2222-2222-2222-222222222222/summary \
-  -H "X-Customer-Id: 11111111-1111-1111-1111-111111111111" \
-  -H "X-Channel: mobile"
-```
+TERMINAL_CERT="dev/certs/atm-terminal/keystore.p12:xyzbank-dev"
 
-**bff-atm — saldo y retiro**
-
-```bash
-curl -sS http://localhost:8083/accounts/22222222-2222-2222-2222-222222222222/balance \
-  -H "X-Customer-Id: 11111111-1111-1111-1111-111111111111" \
-  -H "X-Channel: atm" \
-  -H "X-Terminal-Id: ATM-001"
-
-curl -sS -X POST http://localhost:8083/accounts/22222222-2222-2222-2222-222222222222/withdrawals \
+# 1. Verificar PIN -> obtiene una sesión de 120 segundos
+SESSION_TOKEN=$(curl -sS --cacert dev/certs/ca.crt \
+  --cert-type P12 --cert "$TERMINAL_CERT" \
+  -X POST https://localhost:8083/pin-verifications \
   -H "Content-Type: application/json" \
-  -H "X-Customer-Id: 11111111-1111-1111-1111-111111111111" \
-  -H "X-Channel: atm" \
-  -H "X-Terminal-Id: ATM-001" \
+  -d '{"cardNumber":"77777777-7777-7777-7777-777777777777","pin":"1234"}' \
+  | jq -r .sessionToken)
+
+# 2. Consultar saldo
+curl -sS --cacert dev/certs/ca.crt \
+  --cert-type P12 --cert "$TERMINAL_CERT" \
+  https://localhost:8083/accounts/22222222-2222-2222-2222-222222222222/balance \
+  -H "Authorization: Bearer $SESSION_TOKEN"
+
+# 3. Retirar (Idempotency-Key evita un doble retiro si se reintenta la misma llamada)
+curl -sS --cacert dev/certs/ca.crt \
+  --cert-type P12 --cert "$TERMINAL_CERT" \
+  -X POST https://localhost:8083/accounts/22222222-2222-2222-2222-222222222222/withdrawals \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $SESSION_TOKEN" \
   -H "Idempotency-Key: demo-withdrawal-1" \
   -d '{"amount":40.00,"currency":"USD"}'
 ```
 
-Health y OpenAPI (sin cabeceras de identidad):
+La sesión expira a los 120 segundos: repite el paso 1 si el paso 2 o 3 devuelven 422. Tres PINs incorrectos seguidos bloquean la tarjeta demo (423 en adelante, incluso con el PIN correcto); desbloquéala con `./scripts/reset-dev-card-lock.sh` (requiere el stack de `docker compose` arriba).
+
+**bff-web / bff-mobile — una vez autenticado**
+
+El login real requiere un proveedor OIDC (ver la nota al inicio de este README). Una vez completado, `bff-web` guarda la sesión en una cookie httpOnly (`session`) que el navegador reenvía solo; `bff-mobile` devuelve `sessionToken`/`refreshToken` en el cuerpo de la respuesta de login, que el cliente nativo debe reenviar como `Authorization: Bearer` junto con `X-Device-Id`. Con esos ya obtenidos, las llamadas de dominio lucen así:
+
+```bash
+# bff-web (cookie de sesión ya presente)
+curl -sS --cacert dev/certs/ca.crt \
+  -b "session=$SESSION_COOKIE" \
+  https://localhost:8081/customers/11111111-1111-1111-1111-111111111111/dashboard
+
+# bff-mobile (JWT de dispositivo)
+curl -sS --cacert dev/certs/ca.crt \
+  -H "Authorization: Bearer $DEVICE_TOKEN" \
+  -H "X-Device-Id: $DEVICE_ID" \
+  https://localhost:8082/accounts/22222222-2222-2222-2222-222222222222/summary
+```
+
+Health y OpenAPI:
 
 ```bash
 curl -sS http://localhost:8080/actuator/health
-curl -sS http://localhost:8081/v3/api-docs
+curl -sS --cacert dev/certs/ca.crt https://localhost:8081/v3/api-docs
 ```
 
 Contratos en el repo: [`docs/contracts/`](docs/contracts/). Arquitectura: [`docs/architecture.md`](docs/architecture.md). ADR de BFFs: [`docs/adr/001-bff-strategy.md`](docs/adr/001-bff-strategy.md).
@@ -153,18 +194,7 @@ Los ITs de PostgreSQL/MySQL usan Testcontainers. Sin Docker se omiten (`disabled
 - **PostgreSQL cae con el stack ya arriba.** `GET http://localhost:8080/actuator/health` deja de reportar UP (Actuator incluye el datasource). Los BFFs no tienen base propia: su health sigue UP aunque Postgres esté caído.
 - **Testcontainers skipped.** Arranca Docker Desktop y vuelve a `mvn verify`.
 - **Solo quieres experimentar el job CSV.** Sigue usando [`data-migration/docker-compose.yml`](data-migration/docker-compose.yml) (MySQL aislado). El camino soportado de plataforma completa es el Compose de la raíz.
-
-## Identidad (temporal)
-
-| Cabecera | Quién la envía | Uso |
-|---|---|---|
-| `X-Customer-Id` | los tres BFFs | identidad del cliente |
-| `X-Channel` | los tres BFFs | `web`, `mobile` o `atm` |
-| `X-Terminal-Id` | solo ATM | obligatorio en el canal ATM |
-| `Idempotency-Key` | ATM en retiros | reenvío seguro del mismo retiro |
-| `X-Correlation-Id` | opcional | si falta, cada BFF genera un UUID y lo propaga a `core-service` |
-
-No hay login, OAuth2, mTLS ni PIN. No despliegues esto en un entorno real tal como está.
+- **`curl` falla el handshake TLS contra `bff-atm` con un certificado de cliente (`error:...SSL routines:ST_CONNECT:tlsv1 alert protocol version` o similar).** El `curl`/LibreSSL que trae macOS de fábrica tiene problemas negociando TLS con certificados de cliente P12 contra este stack. Instala una build de `curl` enlazada con OpenSSL (p. ej. `brew install curl`) o usa `openssl s_client` para depurar la conexión.
 
 ## Pruebas con Postman
 ### GET Dashboard (BFF WEB)
