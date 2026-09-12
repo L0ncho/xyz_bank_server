@@ -35,6 +35,7 @@ class DashboardControllerE2ETest {
      * 3. Non-web channel is rejected
      * 4. Outbound core-service calls carry the inbound correlation id
      * 5. A generated correlation id is forwarded when the inbound header is absent
+     * 6. Every outbound core-service call carries the service credential
      */
 
     private static final WireMockServer CORE_SERVICE = new WireMockServer(wireMockConfig().dynamicPort());
@@ -181,6 +182,33 @@ class DashboardControllerE2ETest {
                 .withHeader("X-Correlation-Id", WireMock.equalTo(correlationId)));
         CORE_SERVICE.verify(getRequestedFor(urlEqualTo("/internal/accounts/account-1/transactions?pageSize=5"))
                 .withHeader("X-Correlation-Id", WireMock.equalTo(correlationId)));
+    }
+
+    @Test
+    @DisplayName("carries the service credential on every outbound core-service call")
+    void carriesTheServiceCredentialOnEveryOutboundCoreServiceCall() {
+        CORE_SERVICE.stubFor(get(urlEqualTo("/internal/customers/customer-1"))
+                .willReturn(json("{\"id\":\"customer-1\",\"fullName\":\"Ana Perez\",\"email\":\"ana@example.com\"}")));
+        CORE_SERVICE.stubFor(get(urlEqualTo("/internal/customers/customer-1/accounts"))
+                .willReturn(json(
+                        "[{\"id\":\"account-1\",\"accountNumber\":\"1000000001\",\"balance\":500.00,\"currency\":\"USD\"}]")));
+        CORE_SERVICE.stubFor(get(urlEqualTo("/internal/accounts/account-1/transactions?pageSize=5"))
+                .willReturn(json("{\"items\":[],\"nextCursor\":null}")));
+
+        given()
+                .header("X-Customer-Id", "customer-1")
+                .header("X-Channel", "web")
+                .when()
+                .get("/customers/{customerId}/dashboard", "customer-1")
+                .then()
+                .statusCode(200);
+
+        CORE_SERVICE.verify(getRequestedFor(urlEqualTo("/internal/customers/customer-1"))
+                .withHeader("X-Service-Credential", WireMock.equalTo("dev-service-credential-web")));
+        CORE_SERVICE.verify(getRequestedFor(urlEqualTo("/internal/customers/customer-1/accounts"))
+                .withHeader("X-Service-Credential", WireMock.equalTo("dev-service-credential-web")));
+        CORE_SERVICE.verify(getRequestedFor(urlEqualTo("/internal/accounts/account-1/transactions?pageSize=5"))
+                .withHeader("X-Service-Credential", WireMock.equalTo("dev-service-credential-web")));
     }
 
     private static ResponseDefinitionBuilder json(String body) {
