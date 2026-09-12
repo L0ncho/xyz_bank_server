@@ -39,6 +39,7 @@ class DashboardControllerE2ETest {
      * 4. Outbound core-service calls carry the inbound correlation id
      * 5. A generated correlation id is forwarded when the inbound header is absent
      * 6. Every outbound core-service call carries the service credential
+     * 7. Every outbound core-service call forwards the caller's session token as a bearer token
      */
 
     private static final WireMockServer CORE_SERVICE = new WireMockServer(wireMockConfig().dynamicPort());
@@ -240,6 +241,33 @@ class DashboardControllerE2ETest {
                 .withHeader("X-Service-Credential", WireMock.equalTo("dev-service-credential-web")));
         CORE_SERVICE.verify(getRequestedFor(urlEqualTo("/internal/accounts/account-1/transactions?pageSize=5"))
                 .withHeader("X-Service-Credential", WireMock.equalTo("dev-service-credential-web")));
+    }
+
+    @Test
+    @DisplayName("forwards the caller's session token as a bearer token on every outbound core-service call")
+    void forwardsTheCallersSessionTokenAsABearerTokenOnEveryOutboundCoreServiceCall() {
+        CORE_SERVICE.stubFor(get(urlEqualTo("/internal/customers/customer-1"))
+                .willReturn(json("{\"id\":\"customer-1\",\"fullName\":\"Ana Perez\",\"email\":\"ana@example.com\"}")));
+        CORE_SERVICE.stubFor(get(urlEqualTo("/internal/customers/customer-1/accounts"))
+                .willReturn(json(
+                        "[{\"id\":\"account-1\",\"accountNumber\":\"1000000001\",\"balance\":500.00,\"currency\":\"USD\"}]")));
+        CORE_SERVICE.stubFor(get(urlEqualTo("/internal/accounts/account-1/transactions?pageSize=5"))
+                .willReturn(json("{\"items\":[],\"nextCursor\":null}")));
+        String sessionToken = webSessionFor("customer-1");
+
+        given()
+                .cookie("session", sessionToken)
+                .when()
+                .get("/customers/{customerId}/dashboard", "customer-1")
+                .then()
+                .statusCode(200);
+
+        CORE_SERVICE.verify(getRequestedFor(urlEqualTo("/internal/customers/customer-1"))
+                .withHeader("Authorization", WireMock.equalTo("Bearer " + sessionToken)));
+        CORE_SERVICE.verify(getRequestedFor(urlEqualTo("/internal/customers/customer-1/accounts"))
+                .withHeader("Authorization", WireMock.equalTo("Bearer " + sessionToken)));
+        CORE_SERVICE.verify(getRequestedFor(urlEqualTo("/internal/accounts/account-1/transactions?pageSize=5"))
+                .withHeader("Authorization", WireMock.equalTo("Bearer " + sessionToken)));
     }
 
     private static ResponseDefinitionBuilder json(String body) {
