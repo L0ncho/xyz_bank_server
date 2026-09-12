@@ -1,9 +1,18 @@
 package cl.duoc.xyzbank.coreservice.auth.unit;
 
+import cl.duoc.xyzbank.coredomain.accounts.domain.entities.Account;
+import cl.duoc.xyzbank.coredomain.accounts.domain.valueobjects.AccountNumber;
+import cl.duoc.xyzbank.coredomain.accounts.domain.valueobjects.Money;
+import cl.duoc.xyzbank.coredomain.accounts.unit.InMemoryAccountRepository;
+import cl.duoc.xyzbank.coredomain.shared.domain.Id;
+import cl.duoc.xyzbank.coredomain.transactions.domain.entities.Transaction;
+import cl.duoc.xyzbank.coredomain.transactions.domain.valueobjects.TransactionType;
+import cl.duoc.xyzbank.coredomain.transactions.unit.InMemoryTransactionRepository;
 import cl.duoc.xyzbank.coreservice.auth.infrastructure.rest.EnforcementFilter;
 import cl.duoc.xyzbank.sharedsecurity.callercontext.Channel;
 import cl.duoc.xyzbank.sharedsecurity.callercontext.JwtCallerContextAdapter;
 import jakarta.servlet.FilterChain;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -12,8 +21,10 @@ import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
 
+import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.util.EnumSet;
 import java.util.Map;
@@ -42,17 +53,31 @@ class EnforcementFilterTest {
 
     private static final String SECRET = "unit-test-signing-secret-unit-test-signing-secret";
     private static final Map<String, String> CREDENTIALS = Map.of("web", "web-secret");
+    private static final String OWNING_CUSTOMER_ID = "customer-1";
 
     private final JwtCallerContextAdapter tokenAdapter = new JwtCallerContextAdapter(SECRET);
+    private final InMemoryAccountRepository accountRepository = new InMemoryAccountRepository();
+    private final InMemoryTransactionRepository transactionRepository = new InMemoryTransactionRepository();
+
+    @BeforeEach
+    void seedOwnedResources() {
+        Account account = Account.create(
+                Id.create("account-1"), AccountNumber.create("1234567890"), Id.create(OWNING_CUSTOMER_ID),
+                Money.create(new BigDecimal("100.00"), "USD"));
+        accountRepository.save(account);
+        transactionRepository.save(Transaction.create(
+                Id.create("transaction-1"), account.getId(), TransactionType.DEBIT,
+                Money.create(new BigDecimal("10.00"), "USD"), LocalDate.now(), null));
+    }
 
     private EnforcementFilter filter(boolean enabled) {
-        return new EnforcementFilter(enabled, CREDENTIALS, tokenAdapter);
+        return new EnforcementFilter(enabled, CREDENTIALS, tokenAdapter, accountRepository, transactionRepository);
     }
 
     @Test
     @DisplayName("when disabled, passes every request through unchanged, even with no credentials")
     void whenDisabledPassesEveryRequestThroughUnchanged() throws Exception {
-        EnforcementFilter filter = new EnforcementFilter(false, Map.of(), tokenAdapter);
+        EnforcementFilter filter = filter(false);
         MockHttpServletRequest request = new MockHttpServletRequest("GET", "/internal/accounts/any/balance");
         MockHttpServletResponse response = new MockHttpServletResponse();
         AtomicBoolean chainCalled = new AtomicBoolean(false);
@@ -67,9 +92,9 @@ class EnforcementFilterTest {
     @Test
     @DisplayName("when enabled, a valid credential and a sufficiently scoped token are let through on a domain endpoint")
     void whenEnabledValidCredentialAndScopedTokenLetThroughOnDomainEndpoint() throws Exception {
-        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/internal/accounts/any/balance");
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/internal/accounts/account-1/balance");
         request.addHeader("X-Service-Credential", "web-secret");
-        request.addHeader("Authorization", "Bearer " + tokenAdapter.issue("customer-1", Channel.WEB, null));
+        request.addHeader("Authorization", "Bearer " + tokenAdapter.issue(OWNING_CUSTOMER_ID, Channel.WEB, null));
         MockHttpServletResponse response = new MockHttpServletResponse();
         AtomicBoolean chainCalled = new AtomicBoolean(false);
         FilterChain chain = (req, res) -> chainCalled.set(true);

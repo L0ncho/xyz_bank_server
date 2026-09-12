@@ -1,5 +1,7 @@
 package cl.duoc.xyzbank.coreservice.auth.config;
 
+import cl.duoc.xyzbank.coredomain.accounts.domain.repositories.AccountRepository;
+import cl.duoc.xyzbank.coredomain.transactions.domain.repositories.TransactionRepository;
 import cl.duoc.xyzbank.coreservice.auth.infrastructure.rest.EnforcementFilter;
 import cl.duoc.xyzbank.sharedsecurity.callercontext.JwtCallerContextAdapter;
 import org.springframework.beans.factory.annotation.Value;
@@ -25,13 +27,16 @@ public class EnforcementFilterConfig {
     private String atmServiceCredential;
 
     @Bean
-    public FilterRegistrationBean<EnforcementFilter> enforcementFilter(JwtCallerContextAdapter tokenAdapter) {
+    public FilterRegistrationBean<EnforcementFilter> enforcementFilter(
+            JwtCallerContextAdapter tokenAdapter,
+            AccountRepository accountRepository,
+            TransactionRepository transactionRepository) {
         Map<String, String> serviceCredentials = Map.of(
                 "web", webServiceCredential,
                 "mobile", mobileServiceCredential,
                 "atm", atmServiceCredential);
-        FilterRegistrationBean<EnforcementFilter> registration = new FilterRegistrationBean<>(
-                new EnforcementFilter(enforcementEnabled, serviceCredentials, tokenAdapter));
+        FilterRegistrationBean<EnforcementFilter> registration = new FilterRegistrationBean<>(new EnforcementFilter(
+                enforcementEnabled, serviceCredentials, tokenAdapter, accountRepository, transactionRepository));
         registration.addUrlPatterns("/internal/*");
         registration.setOrder(2);
         return registration;

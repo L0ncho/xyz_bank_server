@@ -1,17 +1,28 @@
 package cl.duoc.xyzbank.coreservice.auth.infrastructure.rest;
 
+import cl.duoc.xyzbank.coredomain.accounts.domain.entities.Account;
+import cl.duoc.xyzbank.coredomain.accounts.domain.repositories.AccountRepository;
+import cl.duoc.xyzbank.coredomain.shared.domain.DomainException;
+import cl.duoc.xyzbank.coredomain.shared.domain.Id;
+import cl.duoc.xyzbank.coredomain.transactions.domain.entities.Transaction;
+import cl.duoc.xyzbank.coredomain.transactions.domain.repositories.TransactionRepository;
+import cl.duoc.xyzbank.coreservice.auth.infrastructure.rest.DomainEndpointOwnership.IdentifierType;
+import cl.duoc.xyzbank.coreservice.auth.infrastructure.rest.DomainEndpointOwnership.OwnershipCheck;
 import cl.duoc.xyzbank.sharedsecurity.callercontext.CallerContext;
 import cl.duoc.xyzbank.sharedsecurity.callercontext.CallerIdentityException;
 import cl.duoc.xyzbank.sharedsecurity.callercontext.JwtCallerContextAdapter;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.http.ProblemDetail;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
+import java.net.URI;
 import java.util.Collections;
 import java.util.Map;
 import java.util.Optional;
@@ -19,10 +30,10 @@ import java.util.Set;
 
 /**
  * Authenticates the calling service and, for domain endpoints, checks the caller's scope
- * (resource ownership is enforced downstream). Gated by security.enforcement.enabled:
- * while disabled, every request passes through unchanged, matching core-service's
- * pre-channel-auth behavior, so this change can roll out without an intermediate state
- * where core-service rejects a BFF that hasn't been updated yet.
+ * and resource ownership. Gated by security.enforcement.enabled: while disabled, every
+ * request passes through unchanged, matching core-service's pre-channel-auth behavior, so
+ * this change can roll out without an intermediate state where core-service rejects a BFF
+ * that hasn't been updated yet.
  */
 public class EnforcementFilter extends OncePerRequestFilter {
 
@@ -30,15 +41,25 @@ public class EnforcementFilter extends OncePerRequestFilter {
     private static final String AUTHORIZATION_HEADER = "Authorization";
     private static final String BEARER_PREFIX = "Bearer ";
 
+    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
+
     private final boolean enabled;
     private final Map<String, String> serviceCredentials;
     private final JwtCallerContextAdapter tokenAdapter;
+    private final AccountRepository accountRepository;
+    private final TransactionRepository transactionRepository;
 
     public EnforcementFilter(
-            boolean enabled, Map<String, String> serviceCredentials, JwtCallerContextAdapter tokenAdapter) {
+            boolean enabled,
+            Map<String, String> serviceCredentials,
+            JwtCallerContextAdapter tokenAdapter,
+            AccountRepository accountRepository,
+            TransactionRepository transactionRepository) {
         this.enabled = enabled;
         this.serviceCredentials = serviceCredentials;
         this.tokenAdapter = tokenAdapter;
+        this.accountRepository = accountRepository;
+        this.transactionRepository = transactionRepository;
     }
 
     @Override
@@ -55,31 +76,78 @@ public class EnforcementFilter extends OncePerRequestFilter {
         }
         Optional<Set<String>> requiredScopes =
                 DomainEndpointScopes.requiredScopesFor(request.getMethod(), request.getRequestURI());
-        if (requiredScopes.isPresent() && !hasSufficientScope(request, requiredScopes.get(), response)) {
+        if (requiredScopes.isEmpty()) {
+            filterChain.doFilter(request, response);
+            return;
+        }
+        Optional<CallerContext> callerContext = resolveCallerContext(request, response);
+        if (callerContext.isEmpty()) {
+            return;
+        }
+        if (Collections.disjoint(callerContext.get().scopes(), requiredScopes.get())) {
+            reject(response, HttpStatus.FORBIDDEN, "The token's scope does not permit this operation");
+            return;
+        }
+        if (!ownsRequestedResource(request, callerContext.get(), response)) {
             return;
         }
         filterChain.doFilter(request, response);
     }
 
-    private boolean hasSufficientScope(
-            HttpServletRequest request, Set<String> requiredScopes, HttpServletResponse response) throws IOException {
+    private Optional<CallerContext> resolveCallerContext(HttpServletRequest request, HttpServletResponse response)
+            throws IOException {
         String bearerToken = extractBearerToken(request);
         if (bearerToken == null) {
             reject(response, HttpStatus.UNAUTHORIZED, "A valid user token is required");
-            return false;
+            return Optional.empty();
         }
-        CallerContext callerContext;
         try {
-            callerContext = tokenAdapter.resolve(bearerToken);
+            return Optional.of(tokenAdapter.resolve(bearerToken));
         } catch (CallerIdentityException exception) {
             reject(response, HttpStatus.UNAUTHORIZED, "A valid user token is required");
-            return false;
+            return Optional.empty();
         }
-        if (Collections.disjoint(callerContext.scopes(), requiredScopes)) {
-            reject(response, HttpStatus.FORBIDDEN, "The token's scope does not permit this operation");
+    }
+
+    private boolean ownsRequestedResource(
+            HttpServletRequest request, CallerContext callerContext, HttpServletResponse response)
+            throws IOException {
+        Optional<OwnershipCheck> ownershipCheck =
+                DomainEndpointOwnership.ownershipCheckFor(request.getMethod(), request.getRequestURI());
+        if (ownershipCheck.isEmpty()) {
+            return true;
+        }
+        Optional<String> ownerCustomerId = resolveOwnerCustomerId(ownershipCheck.get());
+        if (ownerCustomerId.isEmpty()) {
+            // A malformed identifier is a format-validation concern for the controller
+            // (422), not an ownership concern; a well-formed but unknown one is
+            // indistinguishable, from the caller's perspective, from one it doesn't own.
+            return true;
+        }
+        if (!ownerCustomerId.get().equals(callerContext.customerId())) {
+            rejectNotFound(request, response);
             return false;
         }
         return true;
+    }
+
+    private Optional<String> resolveOwnerCustomerId(OwnershipCheck ownershipCheck) {
+        Id identifier;
+        try {
+            identifier = Id.create(ownershipCheck.identifierValue());
+        } catch (DomainException exception) {
+            return Optional.empty();
+        }
+        return switch (ownershipCheck.type()) {
+            case IdentifierType.CUSTOMER_ID -> Optional.of(identifier.getValue());
+            case IdentifierType.ACCOUNT_ID ->
+                accountRepository.findById(identifier).map(Account::getCustomerId).map(Id::getValue);
+            case IdentifierType.TRANSACTION_ID -> transactionRepository.findById(identifier)
+                    .map(Transaction::getAccountId)
+                    .flatMap(accountRepository::findById)
+                    .map(Account::getCustomerId)
+                    .map(Id::getValue);
+        };
     }
 
     private String extractBearerToken(HttpServletRequest request) {
@@ -98,5 +166,13 @@ public class EnforcementFilter extends OncePerRequestFilter {
         response.setStatus(status.value());
         response.setContentType(MediaType.APPLICATION_PROBLEM_JSON_VALUE);
         response.getWriter().write("{\"detail\":\"" + detail + "\"}");
+    }
+
+    private void rejectNotFound(HttpServletRequest request, HttpServletResponse response) throws IOException {
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.NOT_FOUND, "Resource not found");
+        problem.setInstance(URI.create(request.getRequestURI()));
+        response.setStatus(HttpStatus.NOT_FOUND.value());
+        response.setContentType(MediaType.APPLICATION_PROBLEM_JSON_VALUE);
+        OBJECT_MAPPER.writeValue(response.getWriter(), problem);
     }
 }
