@@ -6,14 +6,20 @@ import cl.duoc.xyzbank.sharedsecurity.callercontext.JwtCallerContextAdapter;
 import jakarta.servlet.FilterChain;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
 
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.EnumSet;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.stream.Stream;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -163,5 +169,48 @@ class EnforcementFilterTest {
         filter(true).doFilter(request, response, chain);
 
         assertFalse(chainCalled.get());
+    }
+
+    // The seven domain-endpoint table rows from channel-auth's spec, one case per row,
+    // each proving the exact channel set allowed to call it and no others.
+    static Stream<Arguments> domainEndpointRows() {
+        return Stream.of(
+                Arguments.of("GET", "/internal/customers/customer-1", EnumSet.of(Channel.WEB)),
+                Arguments.of("GET", "/internal/customers/customer-1/accounts", EnumSet.of(Channel.WEB)),
+                Arguments.of(
+                        "GET",
+                        "/internal/accounts/account-1/balance",
+                        EnumSet.of(Channel.WEB, Channel.MOBILE, Channel.ATM)),
+                Arguments.of(
+                        "GET",
+                        "/internal/accounts/account-1/transactions",
+                        EnumSet.of(Channel.WEB, Channel.MOBILE)),
+                Arguments.of("GET", "/internal/accounts/account-1/interest-summary", EnumSet.of(Channel.WEB)),
+                Arguments.of("GET", "/internal/transactions/transaction-1", EnumSet.of(Channel.WEB, Channel.MOBILE)),
+                Arguments.of("POST", "/internal/accounts/account-1/withdrawals", EnumSet.of(Channel.ATM)));
+    }
+
+    @ParameterizedTest(name = "{0} {1} allows only {2}")
+    @MethodSource("domainEndpointRows")
+    @DisplayName("enforces the exact required scope for each domain-endpoint table row")
+    void enforcesExactRequiredScopePerDomainEndpoint(String method, String path, Set<Channel> allowedChannels)
+            throws Exception {
+        for (Channel channel : Channel.values()) {
+            String token = tokenAdapter.issue("customer-1", channel, null);
+            MockHttpServletRequest request = new MockHttpServletRequest(method, path);
+            request.addHeader("X-Service-Credential", "web-secret");
+            request.addHeader("Authorization", "Bearer " + token);
+            MockHttpServletResponse response = new MockHttpServletResponse();
+            AtomicBoolean chainCalled = new AtomicBoolean(false);
+            FilterChain chain = (req, res) -> chainCalled.set(true);
+
+            filter(true).doFilter(request, response, chain);
+
+            boolean expectedAllowed = allowedChannels.contains(channel);
+            assertEquals(
+                    expectedAllowed,
+                    chainCalled.get(),
+                    "channel " + channel + " on " + method + " " + path);
+        }
     }
 }
