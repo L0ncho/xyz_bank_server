@@ -37,6 +37,9 @@ class OwnershipEnforcingTest {
      *    on their own account
      * 4. A non-owner's token is rejected as not-found for someone else's account
      * 5. A non-owner's token is rejected as not-found for someone else's customer profile
+     * 6. A non-owner's token is rejected as not-found for a transaction whose account belongs
+     *    to a different customer, resolved through the transaction's account, not any direct
+     *    field on the transaction itself
      */
 
     private static final String SECRET = "unit-test-signing-secret-unit-test-signing-secret";
@@ -151,6 +154,33 @@ class OwnershipEnforcingTest {
         Id nonOwnerId = Id.generate();
         String token = tokenAdapter.issue(nonOwnerId.getValue(), Channel.WEB, null);
         MockHttpServletRequest request = new MockHttpServletRequest("GET", "/internal/customers/" + ownerId.getValue());
+        request.addHeader("X-Service-Credential", "web-secret");
+        request.addHeader("Authorization", "Bearer " + token);
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        AtomicBoolean chainCalled = new AtomicBoolean(false);
+        FilterChain chain = (req, res) -> chainCalled.set(true);
+
+        filter().doFilter(request, response, chain);
+
+        assertFalse(chainCalled.get());
+        assertEquals(404, response.getStatus());
+        assertEquals("application/problem+json", response.getContentType());
+    }
+
+    @Test
+    @DisplayName("rejects a non-owner's request for a transaction on someone else's account as not-found, "
+            + "resolved through the transaction's account")
+    void rejectsANonOwnersRequestForATransactionOnSomeoneElsesAccountAsNotFound() throws Exception {
+        Id ownerId = Id.generate();
+        Account account = anAccountOwnedBy(ownerId);
+        Transaction transaction = Transaction.create(
+                Id.generate(), account.getId(), TransactionType.DEBIT,
+                Money.create(new BigDecimal("10.00"), "USD"), LocalDate.now(), null);
+        transactionRepository.save(transaction);
+        Id nonOwnerId = Id.generate();
+        String token = tokenAdapter.issue(nonOwnerId.getValue(), Channel.WEB, null);
+        MockHttpServletRequest request =
+                new MockHttpServletRequest("GET", "/internal/transactions/" + transaction.getId().getValue());
         request.addHeader("X-Service-Credential", "web-secret");
         request.addHeader("Authorization", "Bearer " + token);
         MockHttpServletResponse response = new MockHttpServletResponse();
