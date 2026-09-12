@@ -6,9 +6,7 @@ import cl.duoc.xyzbank.sharedsecurity.callercontext.Channel;
 import cl.duoc.xyzbank.sharedsecurity.callercontext.JwtCallerContextAdapter;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
-import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
-import org.springframework.http.ResponseCookie;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.oauth2.core.oidc.user.OidcUser;
 import org.springframework.security.web.authentication.AuthenticationSuccessHandler;
@@ -27,16 +25,17 @@ import java.time.Instant;
 @Component
 public class OidcLoginSuccessHandler implements AuthenticationSuccessHandler {
 
-    static final String SESSION_COOKIE_NAME = "session";
-    static final String REFRESH_TOKEN_COOKIE_NAME = "refresh_token";
     private static final Duration SESSION_COOKIE_TTL = Duration.ofMinutes(15);
 
     private final JwtCallerContextAdapter tokenAdapter;
     private final RestClient coreServiceClient;
+    private final SessionCookieWriter cookieWriter;
 
-    public OidcLoginSuccessHandler(JwtCallerContextAdapter tokenAdapter, RestClient coreServiceClient) {
+    public OidcLoginSuccessHandler(
+            JwtCallerContextAdapter tokenAdapter, RestClient coreServiceClient, SessionCookieWriter cookieWriter) {
         this.tokenAdapter = tokenAdapter;
         this.coreServiceClient = coreServiceClient;
+        this.cookieWriter = cookieWriter;
     }
 
     @Override
@@ -54,23 +53,12 @@ public class OidcLoginSuccessHandler implements AuthenticationSuccessHandler {
                 .retrieve()
                 .body(RefreshTokenResponse.class);
 
-        addCookie(response, SESSION_COOKIE_NAME, sessionJwt, SESSION_COOKIE_TTL);
-        addCookie(
+        cookieWriter.writeSessionCookies(
                 response,
-                REFRESH_TOKEN_COOKIE_NAME,
+                sessionJwt,
+                SESSION_COOKIE_TTL,
                 refreshTokenResponse.refreshToken(),
                 Duration.between(Instant.now(), refreshTokenResponse.expiry()));
         response.setStatus(HttpServletResponse.SC_NO_CONTENT);
-    }
-
-    private void addCookie(HttpServletResponse response, String name, String value, Duration maxAge) {
-        ResponseCookie cookie = ResponseCookie.from(name, value)
-                .httpOnly(true)
-                .secure(true)
-                .sameSite("Lax")
-                .path("/")
-                .maxAge(maxAge)
-                .build();
-        response.addHeader(HttpHeaders.SET_COOKIE, cookie.toString());
     }
 }
