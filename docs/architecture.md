@@ -2,42 +2,9 @@
 
 XYZ Bank exposes three channel-specific backends for frontend (BFFs) in front of a single internal `core-service`. Only `core-service` talks to PostgreSQL. The legacy CSV sanitization job writes reports to a separate MySQL instance; those reports are not loaded into core-service tables.
 
-## Current topology
+## Topology
 
-Caller identity is a **temporary** header adapter (`X-Customer-Id`, `X-Channel`, and ATM `X-Terminal-Id`) resolved in each BFF's `CallerContextInterceptor`. It is not authentication.
-
-```mermaid
-flowchart LR
-  subgraph clients [Clients]
-    WebClient[Web client]
-    MobileClient[Mobile client]
-    AtmClient[ATM client]
-  end
-
-  subgraph bffs [BFFs - header CallerContext temporary]
-    BffWeb[bff-web :8081]
-    BffMobile[bff-mobile :8082]
-    BffAtm[bff-atm :8083]
-  end
-
-  CoreService[core-service :8080]
-  Postgres[(PostgreSQL 16)]
-  MySQL[(MySQL 8.4)]
-  Migration[data-migration one-shot]
-
-  WebClient --> BffWeb
-  MobileClient --> BffMobile
-  AtmClient --> BffAtm
-  BffWeb --> CoreService
-  BffMobile --> CoreService
-  BffAtm --> CoreService
-  CoreService --> Postgres
-  Migration --> MySQL
-```
-
-## Target topology
-
-The BFF split and `core-service` boundary stay. What changes is how each channel proves who the caller is: OAuth2/OIDC for web, device-bound tokens for mobile, and mTLS plus PIN for ATM. The header `CallerContext` adapter is replaced; payload shapes, aggregation in the BFFs, and the PostgreSQL/MySQL split do not.
+Each channel proves who the caller is with a real credential instead of a trusted header: OAuth2/OIDC session cookie for web, a device-bound JWT for mobile, and mTLS plus a PIN-verified session for ATM. Every client-facing edge is TLS; the BFF→`core-service` edge stays plain HTTP except the one call that carries a raw PIN, which is TLS-only by design.
 
 ```mermaid
 flowchart LR
@@ -48,24 +15,29 @@ flowchart LR
   end
 
   subgraph bffs [BFFs - channel auth]
-    BffWeb[bff-web OAuth2/OIDC]
-    BffMobile[bff-mobile device-bound tokens]
-    BffAtm[bff-atm mTLS + PIN]
+    BffWeb[bff-web OAuth2/OIDC session cookie]
+    BffMobile[bff-mobile device-bound JWT]
+    BffAtm[bff-atm mTLS + PIN session]
   end
 
   CoreService[core-service]
+  CoreServicePin[core-service PIN-verification connector]
   Postgres[(PostgreSQL 16)]
   MySQL[(MySQL 8.4)]
   Migration[data-migration one-shot]
 
-  WebClient --> BffWeb
-  MobileClient --> BffMobile
-  AtmClient --> BffAtm
-  BffWeb --> CoreService
-  BffMobile --> CoreService
-  BffAtm --> CoreService
+  WebClient -- HTTPS --> BffWeb
+  MobileClient -- HTTPS --> BffMobile
+  AtmClient -- HTTPS + mTLS --> BffAtm
+  BffWeb -- HTTP --> CoreService
+  BffMobile -- HTTP --> CoreService
+  BffAtm -- HTTP --> CoreService
+  BffAtm -- HTTPS --> CoreServicePin
   CoreService --> Postgres
+  CoreServicePin -.-> CoreService
   Migration --> MySQL
 ```
 
-What changes: the identity adapter in each BFF (headers today, channel-native credentials later) and any edge TLS/mTLS termination. What does not change: one BFF per channel, `core-service` as the only database owner for banking entities, MySQL reserved for migration reports, and the existing BFF payload contracts.
+`core-service`'s PIN-verification connector (`CoreServicePin` above) is a second Tomcat connector on the same service, not a separate deployable — it shares `core-service`'s process and database access, drawn separately here only to show it terminates TLS while every other `core-service` endpoint stays plain HTTP.
+
+What stays constant regardless of channel: one BFF per channel, `core-service` as the only database owner for banking entities, MySQL reserved for migration reports, and the existing BFF payload contracts. What each channel's credential proves and how it's validated is documented in `docs/contracts/*/openapi.yaml` and the `channel-auth`/`bff-web-auth`/`bff-mobile-auth`/`bff-atm-auth`/`channel-transport-security` specs under `openspec/`.
