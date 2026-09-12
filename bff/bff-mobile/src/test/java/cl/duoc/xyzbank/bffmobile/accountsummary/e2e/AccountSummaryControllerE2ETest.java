@@ -165,6 +165,23 @@ class AccountSummaryControllerE2ETest {
                 .withHeader("X-Correlation-Id", WireMock.equalTo(correlationId)));
     }
 
+    @Test
+    @DisplayName("carries the service credential on every outbound core-service call")
+    void carriesTheServiceCredentialOnEveryOutboundCoreServiceCall() {
+        given()
+                .header("X-Customer-Id", "customer-1")
+                .header("X-Channel", "mobile")
+                .when()
+                .get("/accounts/{accountId}/summary", "account-1")
+                .then()
+                .statusCode(200);
+
+        CORE_SERVICE.verify(getRequestedFor(urlEqualTo("/internal/accounts/account-1/balance"))
+                .withHeader("X-Service-Credential", WireMock.equalTo("dev-service-credential-mobile")));
+        CORE_SERVICE.verify(getRequestedFor(urlEqualTo("/internal/accounts/account-1/transactions?pageSize=5"))
+                .withHeader("X-Service-Credential", WireMock.equalTo("dev-service-credential-mobile")));
+    }
+
     private static void stubSummary() {
         CORE_SERVICE.stubFor(get(urlEqualTo("/internal/accounts/account-1/balance"))
                 .willReturn(aResponse()
