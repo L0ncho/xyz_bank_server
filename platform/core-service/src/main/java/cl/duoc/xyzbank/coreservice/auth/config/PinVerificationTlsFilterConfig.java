@@ -13,6 +13,7 @@ public class PinVerificationTlsFilterConfig {
         FilterRegistrationBean<PinVerificationTlsFilter> registration =
                 new FilterRegistrationBean<>(new PinVerificationTlsFilter());
         registration.addUrlPatterns("/internal/auth/atm/pin-verifications");
+        registration.setOrder(1);
         return registration;
     }
 }

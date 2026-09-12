@@ -43,6 +43,7 @@ class PinVerificationTlsGateE2ETest extends AbstractPostgresIT {
         given()
                 .relaxedHTTPSValidation()
                 .baseUri("https://localhost:8453")
+                .header("X-Service-Credential", "dev-service-credential-atm")
                 .contentType("application/json")
                 .body("{\"cardNumber\":\"unknown-card\",\"pin\":\"1234\"}")
                 .when()

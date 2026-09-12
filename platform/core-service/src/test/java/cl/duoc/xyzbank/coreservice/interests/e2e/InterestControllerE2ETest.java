@@ -40,6 +40,8 @@ class InterestControllerE2ETest extends AbstractPostgresIT {
     @BeforeEach
     void configureRestAssured() {
         RestAssured.port = port;
+        RestAssured.requestSpecification =
+                given().header("X-Service-Credential", "dev-service-credential-web");
     }
 
     @Test

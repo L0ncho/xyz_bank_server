@@ -73,6 +73,7 @@ class PinVerificationControllerE2ETest extends AbstractPostgresIT {
         return given()
                 .relaxedHTTPSValidation()
                 .baseUri("https://localhost:" + tlsPort)
+                .header("X-Service-Credential", "dev-service-credential-atm")
                 .contentType("application/json")
                 .body("{\"cardNumber\":\"" + cardNumber + "\",\"pin\":\"" + pin + "\"}")
                 .when()
