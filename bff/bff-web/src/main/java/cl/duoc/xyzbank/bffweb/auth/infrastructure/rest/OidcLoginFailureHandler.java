@@ -9,8 +9,7 @@ import org.springframework.stereotype.Component;
 import java.io.IOException;
 
 /**
- * Placeholder wired for task 9.1's reachability check; task 9.4 replaces the body with the
- * real rejection path: no cookie is set and no refresh token is requested.
+ * On a failed/denied OIDC callback, no cookie is set and no refresh token is requested.
  */
 @Component
 public class OidcLoginFailureHandler implements AuthenticationFailureHandler {

@@ -50,9 +50,8 @@ public final class Card {
         return version;
     }
 
-    private static final int MAX_CONSECUTIVE_FAILURES = 3;
-
     public PinVerificationResult verifyPin(String pin, PinHasher hasher) {
+        int maxConsecutiveFailures = 3;
         if (locked) {
             return PinVerificationResult.LOCKED;
         }
@@ -61,7 +60,7 @@ public final class Card {
             return PinVerificationResult.SUCCESS;
         }
         consecutiveFailures++;
-        if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
+        if (consecutiveFailures >= maxConsecutiveFailures) {
             locked = true;
             return PinVerificationResult.LOCKED;
         }

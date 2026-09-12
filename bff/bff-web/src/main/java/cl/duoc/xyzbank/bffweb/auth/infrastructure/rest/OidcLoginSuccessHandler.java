@@ -2,6 +2,8 @@ package cl.duoc.xyzbank.bffweb.auth.infrastructure.rest;
 
 import cl.duoc.xyzbank.bffweb.auth.infrastructure.rest.dto.RefreshTokenRequest;
 import cl.duoc.xyzbank.bffweb.auth.infrastructure.rest.dto.RefreshTokenResponse;
+import cl.duoc.xyzbank.bffweb.shared.infrastructure.adapters.CoreServiceCallException;
+import cl.duoc.xyzbank.bffweb.shared.infrastructure.adapters.CoreServiceCalls;
 import cl.duoc.xyzbank.sharedsecurity.callercontext.Channel;
 import cl.duoc.xyzbank.sharedsecurity.callercontext.JwtCallerContextAdapter;
 import jakarta.servlet.http.HttpServletRequest;
@@ -21,6 +23,11 @@ import java.time.Instant;
  * it (and the first refresh token) as HttpOnly/Secure/SameSite cookies, and obtains that
  * first refresh token from core-service using only the service credential -- no user token
  * exists yet at this point (bff-web-auth spec, channel-auth pre-auth endpoint group).
+ *
+ * <p>This handler runs inside the Spring Security filter chain rather than under
+ * DispatcherServlet, so a failed core-service call must be turned into a response here --
+ * BffExceptionHandler's {@code @RestControllerAdvice} never sees exceptions thrown from this
+ * class.
  */
 @Component
 public class OidcLoginSuccessHandler implements AuthenticationSuccessHandler {
@@ -44,15 +51,21 @@ public class OidcLoginSuccessHandler implements AuthenticationSuccessHandler {
         OidcUser oidcUser = (OidcUser) authentication.getPrincipal();
         String customerId = oidcUser.getSubject();
 
-        String sessionJwt = tokenAdapter.issue(customerId, Channel.WEB, null);
-        RefreshTokenResponse refreshTokenResponse = coreServiceClient
-                .post()
-                .uri("/internal/auth/web/refresh-tokens")
-                .contentType(MediaType.APPLICATION_JSON)
-                .body(new RefreshTokenRequest(customerId, null))
-                .retrieve()
-                .body(RefreshTokenResponse.class);
+        RefreshTokenResponse refreshTokenResponse;
+        try {
+            refreshTokenResponse = CoreServiceCalls.fetch(() -> coreServiceClient
+                    .post()
+                    .uri("/internal/auth/web/refresh-tokens")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(new RefreshTokenRequest(customerId, null))
+                    .retrieve()
+                    .body(RefreshTokenResponse.class));
+        } catch (CoreServiceCallException exception) {
+            response.setStatus(exception.getStatus());
+            return;
+        }
 
+        String sessionJwt = tokenAdapter.issue(customerId, Channel.WEB, null);
         cookieWriter.writeSessionCookies(
                 response,
                 sessionJwt,

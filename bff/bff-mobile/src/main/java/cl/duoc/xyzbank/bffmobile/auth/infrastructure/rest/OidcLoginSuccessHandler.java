@@ -4,12 +4,16 @@ import cl.duoc.xyzbank.bffmobile.auth.config.DeviceCapturingAuthorizationRequest
 import cl.duoc.xyzbank.bffmobile.auth.infrastructure.rest.dto.MobileSessionResponse;
 import cl.duoc.xyzbank.bffmobile.auth.infrastructure.rest.dto.RefreshTokenRequest;
 import cl.duoc.xyzbank.bffmobile.auth.infrastructure.rest.dto.RefreshTokenResponse;
+import cl.duoc.xyzbank.bffmobile.shared.infrastructure.adapters.CoreServiceCallException;
+import cl.duoc.xyzbank.bffmobile.shared.infrastructure.adapters.CoreServiceCalls;
 import cl.duoc.xyzbank.sharedsecurity.callercontext.Channel;
 import cl.duoc.xyzbank.sharedsecurity.callercontext.JwtCallerContextAdapter;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import org.springframework.http.HttpStatusCode;
 import org.springframework.http.MediaType;
+import org.springframework.http.ProblemDetail;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.oauth2.core.oidc.user.OidcUser;
 import org.springframework.security.web.authentication.AuthenticationSuccessHandler;
@@ -24,6 +28,11 @@ import java.io.IOException;
  * handed directly to the native client in the response body, never a cookie (design.md
  * Decision 4). The device identifier travels via DeviceCapturingAuthorizationRequestResolver,
  * captured from the login-initiation request before the OIDC round trip began.
+ *
+ * <p>This handler runs inside the Spring Security filter chain rather than under
+ * DispatcherServlet, so a failed core-service call must be turned into a response here --
+ * BffExceptionHandler's {@code @RestControllerAdvice} never sees exceptions thrown from this
+ * class.
  */
 @Component
 public class OidcLoginSuccessHandler implements AuthenticationSuccessHandler {
@@ -54,20 +63,35 @@ public class OidcLoginSuccessHandler implements AuthenticationSuccessHandler {
         OidcUser oidcUser = (OidcUser) authentication.getPrincipal();
         String customerId = oidcUser.getSubject();
 
-        String sessionJwt = tokenAdapter.issue(customerId, Channel.MOBILE, deviceId);
-        RefreshTokenResponse refreshTokenResponse = coreServiceClient
-                .post()
-                .uri("/internal/auth/mobile/devices/{deviceId}/refresh-tokens", deviceId)
-                .contentType(MediaType.APPLICATION_JSON)
-                .body(new RefreshTokenRequest(customerId, null))
-                .retrieve()
-                .body(RefreshTokenResponse.class);
+        RefreshTokenResponse refreshTokenResponse;
+        try {
+            refreshTokenResponse = CoreServiceCalls.fetch(() -> coreServiceClient
+                    .post()
+                    .uri("/internal/auth/mobile/devices/{deviceId}/refresh-tokens", deviceId)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(new RefreshTokenRequest(customerId, null))
+                    .retrieve()
+                    .body(RefreshTokenResponse.class));
+        } catch (CoreServiceCallException exception) {
+            writeError(response, exception);
+            return;
+        }
 
+        String sessionJwt = tokenAdapter.issue(customerId, Channel.MOBILE, deviceId);
         response.setStatus(HttpServletResponse.SC_OK);
         response.setContentType(MediaType.APPLICATION_JSON_VALUE);
         objectMapper.writeValue(
                 response.getWriter(),
                 new MobileSessionResponse(
                         sessionJwt, refreshTokenResponse.refreshToken(), refreshTokenResponse.expiry()));
+    }
+
+    private void writeError(HttpServletResponse response, CoreServiceCallException exception) throws IOException {
+        response.setStatus(exception.getStatus());
+        response.setContentType(MediaType.APPLICATION_PROBLEM_JSON_VALUE);
+        objectMapper.writeValue(
+                response.getWriter(),
+                ProblemDetail.forStatusAndDetail(
+                        HttpStatusCode.valueOf(exception.getStatus()), exception.getMessage()));
     }
 }
