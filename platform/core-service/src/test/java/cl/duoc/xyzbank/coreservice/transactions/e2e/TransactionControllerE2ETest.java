@@ -8,6 +8,8 @@ import cl.duoc.xyzbank.coredomain.shared.domain.Id;
 import cl.duoc.xyzbank.coredomain.transactions.domain.entities.Transaction;
 import cl.duoc.xyzbank.coredomain.transactions.domain.repositories.TransactionRepository;
 import cl.duoc.xyzbank.coredomain.transactions.domain.valueobjects.TransactionType;
+import cl.duoc.xyzbank.sharedsecurity.callercontext.Channel;
+import cl.duoc.xyzbank.sharedsecurity.callercontext.JwtCallerContextAdapter;
 import cl.duoc.xyzbank.testsupport.AbstractPostgresIT;
 import io.restassured.RestAssured;
 import io.restassured.response.Response;
@@ -56,11 +58,15 @@ class TransactionControllerE2ETest extends AbstractPostgresIT {
     @Autowired
     private TransactionRepository transactionRepository;
 
+    @Autowired
+    private JwtCallerContextAdapter tokenAdapter;
+
     @BeforeEach
     void configureRestAssured() {
         RestAssured.port = port;
-        RestAssured.requestSpecification =
-                given().header("X-Service-Credential", "dev-service-credential-web");
+        RestAssured.requestSpecification = given()
+                .header("X-Service-Credential", "dev-service-credential-web")
+                .header("Authorization", "Bearer " + tokenAdapter.issue("customer-1", Channel.WEB, null));
     }
 
     @Test

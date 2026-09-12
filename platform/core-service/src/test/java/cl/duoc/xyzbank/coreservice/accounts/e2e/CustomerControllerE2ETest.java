@@ -7,6 +7,8 @@ import cl.duoc.xyzbank.coredomain.accounts.domain.repositories.CustomerRepositor
 import cl.duoc.xyzbank.coredomain.accounts.domain.valueobjects.AccountNumber;
 import cl.duoc.xyzbank.coredomain.accounts.domain.valueobjects.Money;
 import cl.duoc.xyzbank.coredomain.shared.domain.Id;
+import cl.duoc.xyzbank.sharedsecurity.callercontext.Channel;
+import cl.duoc.xyzbank.sharedsecurity.callercontext.JwtCallerContextAdapter;
 import cl.duoc.xyzbank.testsupport.AbstractPostgresIT;
 import io.restassured.RestAssured;
 import org.junit.jupiter.api.BeforeEach;
@@ -46,11 +48,15 @@ class CustomerControllerE2ETest extends AbstractPostgresIT {
     @Autowired
     private AccountRepository accountRepository;
 
+    @Autowired
+    private JwtCallerContextAdapter tokenAdapter;
+
     @BeforeEach
     void configureRestAssured() {
         RestAssured.port = port;
-        RestAssured.requestSpecification =
-                given().header("X-Service-Credential", "dev-service-credential-web");
+        RestAssured.requestSpecification = given()
+                .header("X-Service-Credential", "dev-service-credential-web")
+                .header("Authorization", "Bearer " + tokenAdapter.issue("customer-1", Channel.WEB, null));
     }
 
     @Test
