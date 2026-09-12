@@ -15,6 +15,7 @@ public class CoreServiceClientConfig {
             @Value("${core-service.base-url}") String baseUrl,
             @Value("${core-service.connect-timeout-ms}") int connectTimeoutMs,
             @Value("${core-service.read-timeout-ms}") int readTimeoutMs,
+            @Value("${core-service.service-credential}") String serviceCredential,
             CorrelationIdClientInterceptor correlationIdClientInterceptor) {
         SimpleClientHttpRequestFactory requestFactory = new SimpleClientHttpRequestFactory();
         requestFactory.setConnectTimeout(connectTimeoutMs);
@@ -22,6 +23,7 @@ public class CoreServiceClientConfig {
         return RestClient.builder()
                 .baseUrl(baseUrl)
                 .requestFactory(requestFactory)
+                .defaultHeader("X-Service-Credential", serviceCredential)
                 .requestInterceptor(correlationIdClientInterceptor)
                 .build();
     }

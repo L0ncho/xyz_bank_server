@@ -14,6 +14,7 @@ import org.springframework.test.context.DynamicPropertySource;
 
 import static com.github.tomakehurst.wiremock.client.WireMock.aResponse;
 import static com.github.tomakehurst.wiremock.client.WireMock.get;
+import static com.github.tomakehurst.wiremock.client.WireMock.getRequestedFor;
 import static com.github.tomakehurst.wiremock.client.WireMock.urlEqualTo;
 import static com.github.tomakehurst.wiremock.core.WireMockConfiguration.wireMockConfig;
 import static io.restassured.RestAssured.given;
@@ -86,6 +87,28 @@ class BalanceInquiryControllerE2ETest {
                 .then()
                 .statusCode(403)
                 .contentType("application/problem+json");
+    }
+
+    @Test
+    @DisplayName("carries the service credential on every outbound core-service call")
+    void carriesTheServiceCredentialOnEveryOutboundCoreServiceCall() {
+        CORE_SERVICE.stubFor(get(urlEqualTo("/internal/accounts/account-1/balance"))
+                .willReturn(aResponse()
+                        .withStatus(200)
+                        .withHeader("Content-Type", "application/json")
+                        .withBody("{\"accountId\":\"account-1\",\"balance\":250.00,\"currency\":\"USD\"}")));
+
+        given()
+                .header("X-Customer-Id", "customer-1")
+                .header("X-Channel", "atm")
+                .header("X-Terminal-Id", "terminal-1")
+                .when()
+                .get("/accounts/{accountId}/balance", "account-1")
+                .then()
+                .statusCode(200);
+
+        CORE_SERVICE.verify(getRequestedFor(urlEqualTo("/internal/accounts/account-1/balance"))
+                .withHeader("X-Service-Credential", com.github.tomakehurst.wiremock.client.WireMock.equalTo("dev-service-credential-atm")));
     }
 
     @Test
