@@ -39,8 +39,10 @@ class DeviceRevocationControllerE2ETest extends AbstractPostgresIT {
     @BeforeEach
     void configureRestAssured() {
         RestAssured.port = port;
-        RestAssured.requestSpecification =
-                given().header("X-Service-Credential", "dev-service-credential-mobile");
+    }
+
+    private io.restassured.specification.RequestSpecification asService() {
+        return given().header("X-Service-Credential", "dev-service-credential-mobile");
     }
 
     private Id newCustomer() {
@@ -55,7 +57,7 @@ class DeviceRevocationControllerE2ETest extends AbstractPostgresIT {
         Id deviceId = Id.generate();
         deviceRegistrationRepository.save(DeviceRegistration.register(deviceId, newCustomer()));
 
-        given()
+        asService()
                 .when()
                 .post("/internal/auth/mobile/devices/" + deviceId.getValue() + "/revocations")
                 .then()
@@ -67,7 +69,7 @@ class DeviceRevocationControllerE2ETest extends AbstractPostgresIT {
     @Test
     @DisplayName("revoking an unknown device returns 404")
     void revokingUnknownDeviceReturns404() {
-        given()
+        asService()
                 .when()
                 .post("/internal/auth/mobile/devices/" + Id.generate().getValue() + "/revocations")
                 .then()

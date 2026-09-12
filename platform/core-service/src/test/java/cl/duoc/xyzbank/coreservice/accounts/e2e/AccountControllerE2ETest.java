@@ -50,11 +50,12 @@ class AccountControllerE2ETest extends AbstractPostgresIT {
     @BeforeEach
     void configureRestAssured() {
         RestAssured.port = port;
-        RestAssured.requestSpecification = given().header("X-Service-Credential", "dev-service-credential-web");
     }
 
     private RequestSpecification asOwner(Id customerId) {
-        return given().header("Authorization", "Bearer " + tokenAdapter.issue(customerId.getValue(), Channel.WEB, null));
+        return given()
+                .header("X-Service-Credential", "dev-service-credential-web")
+                .header("Authorization", "Bearer " + tokenAdapter.issue(customerId.getValue(), Channel.WEB, null));
     }
 
     @Test

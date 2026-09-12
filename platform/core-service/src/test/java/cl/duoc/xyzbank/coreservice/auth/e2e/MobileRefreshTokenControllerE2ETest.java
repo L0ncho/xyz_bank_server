@@ -42,8 +42,10 @@ class MobileRefreshTokenControllerE2ETest extends AbstractPostgresIT {
     @BeforeEach
     void configureRestAssured() {
         RestAssured.port = port;
-        RestAssured.requestSpecification =
-                given().header("X-Service-Credential", "dev-service-credential-mobile");
+    }
+
+    private io.restassured.specification.RequestSpecification asService() {
+        return given().header("X-Service-Credential", "dev-service-credential-mobile");
     }
 
     private Id newCustomer() {
@@ -57,7 +59,7 @@ class MobileRefreshTokenControllerE2ETest extends AbstractPostgresIT {
     void firstTimeIssuanceReturns200WithFreshToken() {
         String deviceId = Id.generate().getValue();
 
-        given()
+        asService()
                 .contentType("application/json")
                 .body("{\"customerId\":\"" + newCustomer().getValue() + "\"}")
                 .when()
@@ -71,14 +73,14 @@ class MobileRefreshTokenControllerE2ETest extends AbstractPostgresIT {
     @DisplayName("successful rotation returns 200 with a new refresh token")
     void successfulRotationReturns200WithNewToken() {
         String deviceId = Id.generate().getValue();
-        Response first = given()
+        Response first = asService()
                 .contentType("application/json")
                 .body("{\"customerId\":\"" + newCustomer().getValue() + "\"}")
                 .when()
                 .post("/internal/auth/mobile/devices/" + deviceId + "/refresh-tokens");
         String firstToken = first.jsonPath().getString("refreshToken");
 
-        given()
+        asService()
                 .contentType("application/json")
                 .body("{\"refreshToken\":\"" + firstToken + "\"}")
                 .when()
@@ -92,18 +94,18 @@ class MobileRefreshTokenControllerE2ETest extends AbstractPostgresIT {
     @DisplayName("reusing an already-rotated refresh token returns 409")
     void reusingAlreadyRotatedTokenReturns409() {
         String deviceId = Id.generate().getValue();
-        Response first = given()
+        Response first = asService()
                 .contentType("application/json")
                 .body("{\"customerId\":\"" + newCustomer().getValue() + "\"}")
                 .when()
                 .post("/internal/auth/mobile/devices/" + deviceId + "/refresh-tokens");
         String firstToken = first.jsonPath().getString("refreshToken");
-        given().contentType("application/json")
+        asService().contentType("application/json")
                 .body("{\"refreshToken\":\"" + firstToken + "\"}")
                 .when()
                 .post("/internal/auth/mobile/devices/" + deviceId + "/refresh-tokens");
 
-        given()
+        asService()
                 .contentType("application/json")
                 .body("{\"refreshToken\":\"" + firstToken + "\"}")
                 .when()
@@ -116,7 +118,7 @@ class MobileRefreshTokenControllerE2ETest extends AbstractPostgresIT {
     @DisplayName("rotation for a revoked device returns 409")
     void rotationForRevokedDeviceReturns409() {
         Id deviceId = Id.generate();
-        Response first = given()
+        Response first = asService()
                 .contentType("application/json")
                 .body("{\"customerId\":\"" + newCustomer().getValue() + "\"}")
                 .when()
@@ -126,7 +128,7 @@ class MobileRefreshTokenControllerE2ETest extends AbstractPostgresIT {
         device.revoke();
         deviceRegistrationRepository.save(device);
 
-        given()
+        asService()
                 .contentType("application/json")
                 .body("{\"refreshToken\":\"" + firstToken + "\"}")
                 .when()

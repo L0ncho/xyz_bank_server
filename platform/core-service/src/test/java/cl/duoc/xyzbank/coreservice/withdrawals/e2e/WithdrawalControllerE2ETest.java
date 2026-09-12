@@ -67,14 +67,14 @@ class WithdrawalControllerE2ETest extends AbstractPostgresIT {
     @BeforeEach
     void configureRestAssured() {
         RestAssured.port = port;
-        RestAssured.requestSpecification = given().header("X-Service-Credential", "dev-service-credential-atm");
         ownerId = Id.generate();
         customerRepository.save(Customer.create(ownerId, "Jane Doe", "jane.doe+" + ownerId.getValue() + "@xyzbank.cl"));
     }
 
     private RequestSpecification asOwner() {
-        return given().header(
-                "Authorization", "Bearer " + tokenAdapter.issue(ownerId.getValue(), Channel.ATM, "terminal-1"));
+        return given()
+                .header("X-Service-Credential", "dev-service-credential-atm")
+                .header("Authorization", "Bearer " + tokenAdapter.issue(ownerId.getValue(), Channel.ATM, "terminal-1"));
     }
 
     @Test

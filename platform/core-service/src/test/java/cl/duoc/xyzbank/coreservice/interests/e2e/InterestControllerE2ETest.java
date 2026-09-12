@@ -59,13 +59,14 @@ class InterestControllerE2ETest extends AbstractPostgresIT {
     @BeforeEach
     void configureRestAssured() {
         RestAssured.port = port;
-        RestAssured.requestSpecification = given().header("X-Service-Credential", "dev-service-credential-web");
         ownerId = Id.generate();
         customerRepository.save(Customer.create(ownerId, "Jane Doe", "jane.doe+" + ownerId.getValue() + "@xyzbank.cl"));
     }
 
     private RequestSpecification asOwner() {
-        return given().header("Authorization", "Bearer " + tokenAdapter.issue(ownerId.getValue(), Channel.WEB, null));
+        return given()
+                .header("X-Service-Credential", "dev-service-credential-web")
+                .header("Authorization", "Bearer " + tokenAdapter.issue(ownerId.getValue(), Channel.WEB, null));
     }
 
     private Id anExistingAccount() {

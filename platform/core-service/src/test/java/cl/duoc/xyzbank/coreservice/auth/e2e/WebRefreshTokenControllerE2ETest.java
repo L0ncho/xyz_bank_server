@@ -36,8 +36,10 @@ class WebRefreshTokenControllerE2ETest extends AbstractPostgresIT {
     @BeforeEach
     void configureRestAssured() {
         RestAssured.port = port;
-        RestAssured.requestSpecification =
-                given().header("X-Service-Credential", "dev-service-credential-web");
+    }
+
+    private io.restassured.specification.RequestSpecification asService() {
+        return given().header("X-Service-Credential", "dev-service-credential-web");
     }
 
     private Id newCustomer() {
@@ -49,7 +51,7 @@ class WebRefreshTokenControllerE2ETest extends AbstractPostgresIT {
     @Test
     @DisplayName("first-time issuance returns 200 with a fresh refresh token")
     void firstTimeIssuanceReturns200WithFreshToken() {
-        given()
+        asService()
                 .contentType("application/json")
                 .body("{\"customerId\":\"" + newCustomer().getValue() + "\"}")
                 .when()
@@ -62,14 +64,14 @@ class WebRefreshTokenControllerE2ETest extends AbstractPostgresIT {
     @Test
     @DisplayName("successful rotation returns 200 with a new refresh token")
     void successfulRotationReturns200WithNewToken() {
-        Response first = given()
+        Response first = asService()
                 .contentType("application/json")
                 .body("{\"customerId\":\"" + newCustomer().getValue() + "\"}")
                 .when()
                 .post("/internal/auth/web/refresh-tokens");
         String firstToken = first.jsonPath().getString("refreshToken");
 
-        given()
+        asService()
                 .contentType("application/json")
                 .body("{\"refreshToken\":\"" + firstToken + "\"}")
                 .when()
@@ -82,18 +84,18 @@ class WebRefreshTokenControllerE2ETest extends AbstractPostgresIT {
     @Test
     @DisplayName("reusing an already-rotated refresh token returns 409")
     void reusingAlreadyRotatedTokenReturns409() {
-        Response first = given()
+        Response first = asService()
                 .contentType("application/json")
                 .body("{\"customerId\":\"" + newCustomer().getValue() + "\"}")
                 .when()
                 .post("/internal/auth/web/refresh-tokens");
         String firstToken = first.jsonPath().getString("refreshToken");
-        given().contentType("application/json")
+        asService().contentType("application/json")
                 .body("{\"refreshToken\":\"" + firstToken + "\"}")
                 .when()
                 .post("/internal/auth/web/refresh-tokens");
 
-        given()
+        asService()
                 .contentType("application/json")
                 .body("{\"refreshToken\":\"" + firstToken + "\"}")
                 .when()
