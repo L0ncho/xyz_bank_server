@@ -42,6 +42,9 @@ class OwnershipEnforcingTest {
      * 6. A non-owner's token is rejected as not-found for a transaction whose account belongs
      *    to a different customer, resolved through the transaction's account, not any direct
      *    field on the transaction itself
+     * 7. A URL-encoded blank identifier (what a browser/HTTP client sends for a literal blank
+     *    path segment) is treated as malformed, not as an unowned resource: the request is let
+     *    through for the controller's own 422, never a 500 from an unguarded UUID parse
      */
 
     private static final String SECRET = "unit-test-signing-secret-unit-test-signing-secret";
@@ -213,6 +216,22 @@ class OwnershipEnforcingTest {
         assertFalse(chainCalled.get());
         assertEquals(404, response.getStatus());
         assertEquals("application/problem+json", response.getContentType());
+    }
+
+    @Test
+    @DisplayName("lets a URL-encoded blank account id through as malformed, not as an unowned resource")
+    void letsAUrlEncodedBlankAccountIdThroughAsMalformed() throws Exception {
+        String token = tokenAdapter.issue(Id.generate().getValue(), Channel.WEB, null);
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/internal/accounts/%20%20%20/balance");
+        request.addHeader("X-Service-Credential", "web-secret");
+        request.addHeader("Authorization", "Bearer " + token);
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        AtomicBoolean chainCalled = new AtomicBoolean(false);
+        FilterChain chain = (req, res) -> chainCalled.set(true);
+
+        filter().doFilter(request, response, chain);
+
+        assertTrue(chainCalled.get(), "a malformed identifier is the controller's 422 concern, not a 500 or 404");
     }
 
     @Test

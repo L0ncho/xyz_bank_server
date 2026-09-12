@@ -1,7 +1,9 @@
 package cl.duoc.xyzbank.coreservice.transactions.e2e;
 
 import cl.duoc.xyzbank.coredomain.accounts.domain.entities.Account;
+import cl.duoc.xyzbank.coredomain.accounts.domain.entities.Customer;
 import cl.duoc.xyzbank.coredomain.accounts.domain.repositories.AccountRepository;
+import cl.duoc.xyzbank.coredomain.accounts.domain.repositories.CustomerRepository;
 import cl.duoc.xyzbank.coredomain.accounts.domain.valueobjects.AccountNumber;
 import cl.duoc.xyzbank.coredomain.accounts.domain.valueobjects.Money;
 import cl.duoc.xyzbank.coredomain.shared.domain.Id;
@@ -13,6 +15,7 @@ import cl.duoc.xyzbank.sharedsecurity.callercontext.JwtCallerContextAdapter;
 import cl.duoc.xyzbank.testsupport.AbstractPostgresIT;
 import io.restassured.RestAssured;
 import io.restassured.response.Response;
+import io.restassured.specification.RequestSpecification;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -56,17 +59,26 @@ class TransactionControllerE2ETest extends AbstractPostgresIT {
     private AccountRepository accountRepository;
 
     @Autowired
+    private CustomerRepository customerRepository;
+
+    @Autowired
     private TransactionRepository transactionRepository;
 
     @Autowired
     private JwtCallerContextAdapter tokenAdapter;
 
+    private Id ownerId;
+
     @BeforeEach
     void configureRestAssured() {
         RestAssured.port = port;
-        RestAssured.requestSpecification = given()
-                .header("X-Service-Credential", "dev-service-credential-web")
-                .header("Authorization", "Bearer " + tokenAdapter.issue("customer-1", Channel.WEB, null));
+        RestAssured.requestSpecification = given().header("X-Service-Credential", "dev-service-credential-web");
+        ownerId = Id.generate();
+        customerRepository.save(Customer.create(ownerId, "Jane Doe", "jane.doe+" + ownerId.getValue() + "@xyzbank.cl"));
+    }
+
+    private RequestSpecification asOwner() {
+        return given().header("Authorization", "Bearer " + tokenAdapter.issue(ownerId.getValue(), Channel.WEB, null));
     }
 
     @Test
@@ -77,7 +89,7 @@ class TransactionControllerE2ETest extends AbstractPostgresIT {
             saveTransaction(accountId, TransactionType.DEBIT, LocalDate.of(2026, 1, day));
         }
 
-        Response firstPage = given()
+        Response firstPage = asOwner()
                 .queryParam("pageSize", 3)
                 .when().get("/internal/accounts/{accountId}/transactions", accountId.getValue())
                 .then()
@@ -87,7 +99,7 @@ class TransactionControllerE2ETest extends AbstractPostgresIT {
         String nextCursor = firstPage.jsonPath().getString("nextCursor");
         org.junit.jupiter.api.Assertions.assertTrue(nextCursor != null && !nextCursor.isBlank());
 
-        given()
+        asOwner()
                 .queryParam("pageSize", 3)
                 .queryParam("cursor", nextCursor)
                 .when().get("/internal/accounts/{accountId}/transactions", accountId.getValue())
@@ -104,7 +116,7 @@ class TransactionControllerE2ETest extends AbstractPostgresIT {
         saveTransaction(accountId, TransactionType.DEBIT, LocalDate.of(2026, 1, 1));
         saveTransaction(accountId, TransactionType.CREDIT, LocalDate.of(2026, 1, 20));
 
-        given()
+        asOwner()
                 .queryParam("from", "2026-01-10")
                 .queryParam("to", "2026-01-31")
                 .queryParam("type", "CREDIT")
@@ -120,7 +132,7 @@ class TransactionControllerE2ETest extends AbstractPostgresIT {
     void returnsAnEmptyPageForAnAccountWithNoTransactions() {
         Id accountId = anExistingAccount();
 
-        given()
+        asOwner()
                 .when().get("/internal/accounts/{accountId}/transactions", accountId.getValue())
                 .then()
                 .statusCode(200)
@@ -131,7 +143,7 @@ class TransactionControllerE2ETest extends AbstractPostgresIT {
     @Test
     @DisplayName("returns 404 for an unknown account")
     void returnsNotFoundForAnUnknownAccount() {
-        given()
+        asOwner()
                 .when().get("/internal/accounts/{accountId}/transactions", Id.generate().getValue())
                 .then()
                 .statusCode(404)
@@ -143,7 +155,7 @@ class TransactionControllerE2ETest extends AbstractPostgresIT {
     void returnsUnprocessableEntityForAnInvertedDateRange() {
         Id accountId = anExistingAccount();
 
-        given()
+        asOwner()
                 .queryParam("from", "2026-02-01")
                 .queryParam("to", "2026-01-01")
                 .when().get("/internal/accounts/{accountId}/transactions", accountId.getValue())
@@ -157,7 +169,7 @@ class TransactionControllerE2ETest extends AbstractPostgresIT {
     void returnsUnprocessableEntityForAnUnrecognizedType() {
         Id accountId = anExistingAccount();
 
-        given()
+        asOwner()
                 .queryParam("type", "REFUND")
                 .when().get("/internal/accounts/{accountId}/transactions", accountId.getValue())
                 .then()
@@ -170,7 +182,7 @@ class TransactionControllerE2ETest extends AbstractPostgresIT {
     void returnsUnprocessableEntityForANonPositivePageSize() {
         Id accountId = anExistingAccount();
 
-        given()
+        asOwner()
                 .queryParam("pageSize", 0)
                 .when().get("/internal/accounts/{accountId}/transactions", accountId.getValue())
                 .then()
@@ -183,7 +195,7 @@ class TransactionControllerE2ETest extends AbstractPostgresIT {
     void returnsUnprocessableEntityForAMalformedCursor() {
         Id accountId = anExistingAccount();
 
-        given()
+        asOwner()
                 .queryParam("cursor", "not-a-real-cursor")
                 .when().get("/internal/accounts/{accountId}/transactions", accountId.getValue())
                 .then()
@@ -199,7 +211,7 @@ class TransactionControllerE2ETest extends AbstractPostgresIT {
             saveTransaction(accountId, TransactionType.DEBIT, LocalDate.of(2026, 1, day));
         }
 
-        given()
+        asOwner()
                 .queryParam("pageSize", 1000)
                 .when().get("/internal/accounts/{accountId}/transactions", accountId.getValue())
                 .then()
@@ -216,7 +228,7 @@ class TransactionControllerE2ETest extends AbstractPostgresIT {
                 transactionId, accountId, TransactionType.DEBIT,
                 Money.create(new BigDecimal("42.00"), "USD"), LocalDate.of(2026, 1, 5), "Groceries"));
 
-        given()
+        asOwner()
                 .when().get("/internal/transactions/{transactionId}", transactionId.getValue())
                 .then()
                 .statusCode(200)
@@ -229,7 +241,7 @@ class TransactionControllerE2ETest extends AbstractPostgresIT {
     @Test
     @DisplayName("returns 404 for an unknown transaction")
     void returnsNotFoundForAnUnknownTransaction() {
-        given()
+        asOwner()
                 .when().get("/internal/transactions/{transactionId}", Id.generate().getValue())
                 .then()
                 .statusCode(404)
@@ -239,7 +251,7 @@ class TransactionControllerE2ETest extends AbstractPostgresIT {
     @Test
     @DisplayName("returns 422 for a malformed transaction id")
     void returnsUnprocessableEntityForAMalformedTransactionId() {
-        given()
+        asOwner()
                 .when().get("/internal/transactions/{transactionId}", "   ")
                 .then()
                 .statusCode(422)
@@ -249,7 +261,7 @@ class TransactionControllerE2ETest extends AbstractPostgresIT {
     private Id anExistingAccount() {
         Id accountId = Id.generate();
         accountRepository.save(Account.create(
-                accountId, AccountNumber.create(randomAccountNumber()), Id.generate(),
+                accountId, AccountNumber.create(randomAccountNumber()), ownerId,
                 Money.create(new BigDecimal("100.00"), "USD")));
         return accountId;
     }

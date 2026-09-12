@@ -20,9 +20,11 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ProblemDetail;
 import org.springframework.web.filter.OncePerRequestFilter;
+import org.springframework.web.util.UriUtils;
 
 import java.io.IOException;
 import java.net.URI;
+import java.nio.charset.StandardCharsets;
 import java.util.Collections;
 import java.util.Map;
 import java.util.Optional;
@@ -119,7 +121,10 @@ public class EnforcementFilter extends OncePerRequestFilter {
         }
         Id identifier;
         try {
-            identifier = Id.create(ownershipCheck.get().identifierValue());
+            // request.getRequestURI() is raw (percent-encoded); decode before treating the
+            // extracted segment as an identifier, matching what @PathVariable binding sees.
+            String decoded = UriUtils.decode(ownershipCheck.get().identifierValue(), StandardCharsets.UTF_8);
+            identifier = Id.create(decoded);
         } catch (DomainException exception) {
             // A malformed identifier is a format-validation concern for the controller
             // (422), not an ownership concern.

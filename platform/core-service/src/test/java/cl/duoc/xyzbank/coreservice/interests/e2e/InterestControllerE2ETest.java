@@ -1,5 +1,10 @@
 package cl.duoc.xyzbank.coreservice.interests.e2e;
 
+import cl.duoc.xyzbank.coredomain.accounts.domain.entities.Account;
+import cl.duoc.xyzbank.coredomain.accounts.domain.entities.Customer;
+import cl.duoc.xyzbank.coredomain.accounts.domain.repositories.AccountRepository;
+import cl.duoc.xyzbank.coredomain.accounts.domain.repositories.CustomerRepository;
+import cl.duoc.xyzbank.coredomain.accounts.domain.valueobjects.AccountNumber;
 import cl.duoc.xyzbank.coredomain.accounts.domain.valueobjects.Money;
 import cl.duoc.xyzbank.coredomain.interests.domain.entities.AnnualInterestSummary;
 import cl.duoc.xyzbank.coredomain.interests.domain.repositories.InterestSummaryRepository;
@@ -8,6 +13,7 @@ import cl.duoc.xyzbank.sharedsecurity.callercontext.Channel;
 import cl.duoc.xyzbank.sharedsecurity.callercontext.JwtCallerContextAdapter;
 import cl.duoc.xyzbank.testsupport.AbstractPostgresIT;
 import io.restassured.RestAssured;
+import io.restassured.specification.RequestSpecification;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -37,23 +43,47 @@ class InterestControllerE2ETest extends AbstractPostgresIT {
     private int port;
 
     @Autowired
+    private AccountRepository accountRepository;
+
+    @Autowired
+    private CustomerRepository customerRepository;
+
+    @Autowired
     private InterestSummaryRepository interestSummaryRepository;
 
     @Autowired
     private JwtCallerContextAdapter tokenAdapter;
 
+    private Id ownerId;
+
     @BeforeEach
     void configureRestAssured() {
         RestAssured.port = port;
-        RestAssured.requestSpecification = given()
-                .header("X-Service-Credential", "dev-service-credential-web")
-                .header("Authorization", "Bearer " + tokenAdapter.issue("customer-1", Channel.WEB, null));
+        RestAssured.requestSpecification = given().header("X-Service-Credential", "dev-service-credential-web");
+        ownerId = Id.generate();
+        customerRepository.save(Customer.create(ownerId, "Jane Doe", "jane.doe+" + ownerId.getValue() + "@xyzbank.cl"));
+    }
+
+    private RequestSpecification asOwner() {
+        return given().header("Authorization", "Bearer " + tokenAdapter.issue(ownerId.getValue(), Channel.WEB, null));
+    }
+
+    private Id anExistingAccount() {
+        Id accountId = Id.generate();
+        accountRepository.save(Account.create(
+                accountId, AccountNumber.create(randomAccountNumber()), ownerId,
+                Money.create(new BigDecimal("100.00"), "USD")));
+        return accountId;
+    }
+
+    private String randomAccountNumber() {
+        return String.valueOf(1000000000L + Math.abs(java.util.UUID.randomUUID().getMostSignificantBits() % 1000000000L));
     }
 
     @Test
     @DisplayName("returns an existing summary")
     void returnsAnExistingSummary() {
-        Id accountId = Id.generate();
+        Id accountId = anExistingAccount();
         interestSummaryRepository.save(AnnualInterestSummary.create(
                 Id.generate(), accountId, 2025,
                 Money.create(new BigDecimal("1000.00"), "USD"),
@@ -61,7 +91,7 @@ class InterestControllerE2ETest extends AbstractPostgresIT {
                 new BigDecimal("2.5000"),
                 Money.create(new BigDecimal("25.00"), "USD")));
 
-        given()
+        asOwner()
                 .queryParam("year", 2025)
                 .when().get("/internal/accounts/{accountId}/interest-summary", accountId.getValue())
                 .then()
@@ -74,9 +104,11 @@ class InterestControllerE2ETest extends AbstractPostgresIT {
     @Test
     @DisplayName("returns 404 when no summary exists for that account and year")
     void returnsNotFoundWhenNoSummaryExistsForThatAccountAndYear() {
-        given()
+        Id accountId = anExistingAccount();
+
+        asOwner()
                 .queryParam("year", 2025)
-                .when().get("/internal/accounts/{accountId}/interest-summary", Id.generate().getValue())
+                .when().get("/internal/accounts/{accountId}/interest-summary", accountId.getValue())
                 .then()
                 .statusCode(404)
                 .contentType("application/problem+json");
@@ -85,8 +117,10 @@ class InterestControllerE2ETest extends AbstractPostgresIT {
     @Test
     @DisplayName("returns 422 for a missing year")
     void returnsUnprocessableEntityForAMissingYear() {
-        given()
-                .when().get("/internal/accounts/{accountId}/interest-summary", Id.generate().getValue())
+        Id accountId = anExistingAccount();
+
+        asOwner()
+                .when().get("/internal/accounts/{accountId}/interest-summary", accountId.getValue())
                 .then()
                 .statusCode(422)
                 .contentType("application/problem+json");
@@ -95,9 +129,11 @@ class InterestControllerE2ETest extends AbstractPostgresIT {
     @Test
     @DisplayName("returns 422 for a non-numeric year")
     void returnsUnprocessableEntityForANonNumericYear() {
-        given()
+        Id accountId = anExistingAccount();
+
+        asOwner()
                 .queryParam("year", "abcd")
-                .when().get("/internal/accounts/{accountId}/interest-summary", Id.generate().getValue())
+                .when().get("/internal/accounts/{accountId}/interest-summary", accountId.getValue())
                 .then()
                 .statusCode(422)
                 .contentType("application/problem+json");
@@ -106,7 +142,7 @@ class InterestControllerE2ETest extends AbstractPostgresIT {
     @Test
     @DisplayName("returns 422 for a malformed account id")
     void returnsUnprocessableEntityForAMalformedAccountId() {
-        given()
+        asOwner()
                 .queryParam("year", 2025)
                 .when().get("/internal/accounts/{accountId}/interest-summary", "   ")
                 .then()
