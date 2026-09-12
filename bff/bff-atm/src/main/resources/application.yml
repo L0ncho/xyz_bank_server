@@ -21,6 +21,10 @@ core-service:
   read-timeout-ms: 3000
   service-credential: ${CORE_SERVICE_CREDENTIAL:dev-service-credential-atm}
 
+channel-auth:
+  jwt:
+    secret: ${CHANNEL_AUTH_JWT_SECRET:dev-channel-auth-jwt-signing-secret-please-rotate-in-prod}
+
 management:
   endpoints:
     web:
