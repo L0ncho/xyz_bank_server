@@ -177,6 +177,31 @@ class WithdrawalControllerE2ETest {
     }
 
     @Test
+    @DisplayName("forwards the caller's session token as a bearer token on every outbound core-service call")
+    void forwardsTheCallersSessionTokenAsABearerTokenOnEveryOutboundCoreServiceCall() {
+        CORE_SERVICE.stubFor(post(urlEqualTo("/internal/accounts/account-1/withdrawals"))
+                .willReturn(aResponse()
+                        .withStatus(201)
+                        .withHeader("Content-Type", "application/json")
+                        .withBody(
+                                "{\"transactionId\":\"tx-1\",\"accountId\":\"account-1\",\"amount\":40.00,\"currency\":\"USD\",\"occurredOn\":\"2026-01-01\",\"newBalance\":210.00}")));
+        String token = tokenAdapter.issue("customer-1", Channel.ATM, TERMINAL_ID);
+
+        given()
+                .header("Authorization", "Bearer " + token)
+                .header("Idempotency-Key", "key-1")
+                .contentType(MediaType.APPLICATION_JSON_VALUE)
+                .body("{\"amount\":40.00,\"currency\":\"USD\"}")
+                .when()
+                .post("/accounts/{accountId}/withdrawals", "account-1")
+                .then()
+                .statusCode(201);
+
+        CORE_SERVICE.verify(postRequestedFor(urlEqualTo("/internal/accounts/account-1/withdrawals"))
+                .withHeader("Authorization", WireMock.equalTo("Bearer " + token)));
+    }
+
+    @Test
     @DisplayName("rejects a session bound to a different terminal than the one presenting it")
     void rejectsASessionBoundToADifferentTerminal() {
         given()

@@ -119,6 +119,27 @@ class BalanceInquiryControllerE2ETest {
     }
 
     @Test
+    @DisplayName("forwards the caller's session token as a bearer token on every outbound core-service call")
+    void forwardsTheCallersSessionTokenAsABearerTokenOnEveryOutboundCoreServiceCall() {
+        CORE_SERVICE.stubFor(get(urlEqualTo("/internal/accounts/account-1/balance"))
+                .willReturn(aResponse()
+                        .withStatus(200)
+                        .withHeader("Content-Type", "application/json")
+                        .withBody("{\"accountId\":\"account-1\",\"balance\":250.00,\"currency\":\"USD\"}")));
+        String token = tokenAdapter.issue("customer-1", Channel.ATM, TERMINAL_ID);
+
+        given()
+                .header("Authorization", "Bearer " + token)
+                .when()
+                .get("/accounts/{accountId}/balance", "account-1")
+                .then()
+                .statusCode(200);
+
+        CORE_SERVICE.verify(getRequestedFor(urlEqualTo("/internal/accounts/account-1/balance"))
+                .withHeader("Authorization", WireMock.equalTo("Bearer " + token)));
+    }
+
+    @Test
     @DisplayName("rejects a missing bearer token")
     void rejectsAMissingBearerToken() {
         given()
