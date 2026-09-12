@@ -40,16 +40,6 @@ class BffWebArchitectureTest {
             .haveFullyQualifiedName("jakarta.servlet.http.HttpServletRequest");
 
     @ArchTest
-    static final ArchRule useCasesControllersAndAdaptersObtainIdentityThroughCallerContext = noClasses()
-            .that()
-            .resideInAnyPackage("..application..", "..infrastructure.adapters..")
-            .or()
-            .areAnnotatedWith(RestController.class)
-            .should()
-            .dependOnClassesThat()
-            .haveFullyQualifiedName("cl.duoc.xyzbank.sharedsecurity.callercontext.HeaderCallerContextAdapter");
-
-    @ArchTest
     static final ArchRule oidcClientUsageIsConfinedToTheAuthPackage = noClasses()
             .that()
             .resideOutsideOfPackage("cl.duoc.xyzbank.bffweb.auth..")

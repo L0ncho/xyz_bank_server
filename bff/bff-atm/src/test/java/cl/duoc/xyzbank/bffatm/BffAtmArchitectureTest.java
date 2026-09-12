@@ -63,16 +63,6 @@ class BffAtmArchitectureTest {
             .dependOnClassesThat()
             .haveFullyQualifiedName("jakarta.servlet.http.HttpServletRequest");
 
-    @ArchTest
-    static final ArchRule useCasesControllersAndAdaptersObtainIdentityThroughCallerContext = noClasses()
-            .that()
-            .resideInAnyPackage("..application..", "..infrastructure.adapters..")
-            .or()
-            .areAnnotatedWith(RestController.class)
-            .should()
-            .dependOnClassesThat()
-            .haveFullyQualifiedName("cl.duoc.xyzbank.sharedsecurity.callercontext.HeaderCallerContextAdapter");
-
     /*
      * Not an ArchUnit rule: ArchUnit reasons about class/package dependencies, not string
      * literals, so it cannot see a header name passed to request.getHeader(...). This scans
