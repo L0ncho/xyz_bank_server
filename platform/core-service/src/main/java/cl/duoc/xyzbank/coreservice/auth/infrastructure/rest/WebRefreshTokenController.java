@@ -21,6 +21,6 @@ public class WebRefreshTokenController {
     public RefreshTokenResponse rotate(@RequestBody RefreshTokenRequest request) {
         RefreshTokenIssuance issuance =
                 rotateWebRefreshTokenUseCase.execute(request.customerId(), request.refreshToken());
-        return new RefreshTokenResponse(issuance.rawToken(), issuance.expiry());
+        return new RefreshTokenResponse(issuance.customerId(), issuance.rawToken(), issuance.expiry());
     }
 }

@@ -72,7 +72,7 @@ public class RotateMobileRefreshTokenUseCase {
                 Id.generate(), Channel.MOBILE, customerId, deviceId.getValue(), tokenGenerator.hash(rawToken),
                 expiry);
         refreshTokenRepository.save(record);
-        return new RefreshTokenIssuance(rawToken, expiry);
+        return new RefreshTokenIssuance(customerId.getValue(), rawToken, expiry);
     }
 
     private RefreshTokenIssuance rotate(RefreshTokenRecord record) {
@@ -81,6 +81,6 @@ public class RotateMobileRefreshTokenUseCase {
         RefreshTokenRecord rotated = record.rotate(Id.generate(), tokenGenerator.hash(rawToken), expiry);
         refreshTokenRepository.save(record);
         refreshTokenRepository.save(rotated);
-        return new RefreshTokenIssuance(rawToken, expiry);
+        return new RefreshTokenIssuance(record.getOwnerId().getValue(), rawToken, expiry);
     }
 }

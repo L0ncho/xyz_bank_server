@@ -22,6 +22,6 @@ public class MobileRefreshTokenController {
     public RefreshTokenResponse rotate(@PathVariable String deviceId, @RequestBody RefreshTokenRequest request) {
         RefreshTokenIssuance issuance = rotateMobileRefreshTokenUseCase.execute(
                 request.customerId(), deviceId, request.refreshToken());
-        return new RefreshTokenResponse(issuance.rawToken(), issuance.expiry());
+        return new RefreshTokenResponse(issuance.customerId(), issuance.rawToken(), issuance.expiry());
     }
 }
