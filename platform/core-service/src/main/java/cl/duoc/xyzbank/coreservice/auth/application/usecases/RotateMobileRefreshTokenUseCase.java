@@ -53,6 +53,11 @@ public class RotateMobileRefreshTokenUseCase {
         String presentedHash = tokenGenerator.hash(presentedRefreshToken);
         RefreshTokenRecord record = refreshTokenRepository.findByTokenHash(presentedHash)
                 .orElseThrow(() -> DomainException.notFound("Refresh token not found"));
+        if (!record.getDeviceId().map(deviceId::equals).orElse(false)) {
+            // Indistinguishable from "refresh token not found": a device must not be able to
+            // tell "this token exists but belongs to a different device" from "no such token".
+            throw DomainException.notFound("Refresh token not found");
+        }
         if (record.isRotated()) {
             refreshTokenRepository.revokeChain(record.getChainId());
             throw DomainException.conflict("Refresh token was already used; the session has been revoked");

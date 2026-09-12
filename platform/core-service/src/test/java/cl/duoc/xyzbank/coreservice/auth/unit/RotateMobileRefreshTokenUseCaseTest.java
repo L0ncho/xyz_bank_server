@@ -25,6 +25,7 @@ class RotateMobileRefreshTokenUseCaseTest {
      * 2. Successful rotation returns a new refresh token and invalidates the old one
      * 3. Reusing an already-rotated refresh token is rejected and revokes the whole chain
      * 4. Rotation is rejected for a revoked device
+     * 5. Rotation is rejected when the presented refresh token belongs to a different device
      */
 
     private final OpaqueTokenGenerator tokenGenerator = new OpaqueTokenGenerator();
@@ -83,5 +84,23 @@ class RotateMobileRefreshTokenUseCaseTest {
         deviceRegistrationRepository.save(device);
 
         assertThrows(DomainException.class, () -> useCase.execute(null, deviceId.getValue(), first.rawToken()));
+    }
+
+    @Test
+    @DisplayName("rotation is rejected when the presented refresh token belongs to a different device")
+    void rotationIsRejectedWhenTheTokenBelongsToADifferentDevice() {
+        Id ownDeviceId = Id.generate();
+        Id otherDeviceId = Id.generate();
+        RefreshTokenIssuance issuedForOtherDevice = useCase.execute(Id.generate().getValue(), otherDeviceId.getValue(), null);
+        useCase.execute(Id.generate().getValue(), ownDeviceId.getValue(), null);
+
+        DomainException exception = assertThrows(
+                DomainException.class,
+                () -> useCase.execute(null, ownDeviceId.getValue(), issuedForOtherDevice.rawToken()));
+
+        assertTrue(exception.getType() == DomainException.Type.NOT_FOUND);
+        assertFalse(refreshTokenRepository.findByTokenHash(tokenGenerator.hash(issuedForOtherDevice.rawToken()))
+                .orElseThrow()
+                .isRotated(), "the other device's token must not be rotated by this mismatched attempt");
     }
 }
