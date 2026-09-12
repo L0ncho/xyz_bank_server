@@ -45,6 +45,8 @@ class AccountSummaryControllerE2ETest {
     @BeforeEach
     void configureRestAssured() {
         RestAssured.port = port;
+        RestAssured.baseURI = "https://localhost";
+        RestAssured.useRelaxedHTTPSValidation();
         CORE_SERVICE.resetAll();
         stubSummary();
     }

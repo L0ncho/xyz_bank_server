@@ -3,6 +3,7 @@ package cl.duoc.xyzbank.bffatm.withdrawal.e2e;
 import com.github.tomakehurst.wiremock.WireMockServer;
 import com.github.tomakehurst.wiremock.client.WireMock;
 import io.restassured.RestAssured;
+import io.restassured.config.SSLConfig;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -44,6 +45,12 @@ class WithdrawalControllerE2ETest {
     @BeforeEach
     void configureRestAssured() {
         RestAssured.port = port;
+        RestAssured.baseURI = "https://localhost";
+        RestAssured.config = RestAssured.config()
+                .sslConfig(SSLConfig.sslConfig()
+                        .keyStore("tls/terminal-keystore.p12", "xyzbank-dev")
+                        .and()
+                        .relaxedHTTPSValidation());
         CORE_SERVICE.resetAll();
     }
 
