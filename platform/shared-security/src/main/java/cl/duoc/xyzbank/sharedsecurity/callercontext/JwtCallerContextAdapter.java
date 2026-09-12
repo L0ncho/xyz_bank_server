@@ -53,7 +53,12 @@ public final class JwtCallerContextAdapter {
         }
         Claims claims;
         try {
-            claims = Jwts.parser().verifyWith(key).build().parseSignedClaims(token).getPayload();
+            claims = Jwts.parser()
+                    .verifyWith(key)
+                    .clock(() -> Date.from(clock.instant()))
+                    .build()
+                    .parseSignedClaims(token)
+                    .getPayload();
         } catch (JwtException | IllegalArgumentException exception) {
             throw CallerIdentityException.invalid("Invalid or expired token");
         }
