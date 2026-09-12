@@ -4,10 +4,13 @@ info:
   description: >
     Web channel backend-for-frontend. Aggregates core-service data into full
     payloads for the dashboard, filterable transaction history, and annual
-    interest view. Does not access any database.
+    interest view. Authenticates with JWT Bearer HS256 over HTTPS. Does not
+    access any database. Identity headers (X-Customer-Id, X-Channel) are ignored.
   version: "1.0.0"
 servers:
-  - url: http://localhost:8081
+  - url: https://localhost:8081
+security:
+  - bearerAuth: []
 paths:
   /customers/{customerId}/dashboard:
     get:
@@ -15,8 +18,6 @@ paths:
       operationId: getDashboard
       parameters:
         - $ref: '#/components/parameters/CustomerId'
-        - $ref: '#/components/parameters/XCustomerId'
-        - $ref: '#/components/parameters/XChannel'
       responses:
         '200':
           description: Profile, every account with balance, latest transactions, and annual interest
@@ -24,20 +25,24 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/DashboardResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
         '403':
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
         '422':
           $ref: '#/components/responses/UnprocessableEntity'
+        '502':
+          $ref: '#/components/responses/BadGateway'
+        '504':
+          $ref: '#/components/responses/GatewayTimeout'
   /accounts/{accountId}/transactions:
     get:
       summary: Full transaction history
       operationId: getTransactionHistory
       parameters:
         - $ref: '#/components/parameters/AccountId'
-        - $ref: '#/components/parameters/XCustomerId'
-        - $ref: '#/components/parameters/XChannel'
         - name: from
           in: query
           schema:
@@ -68,20 +73,24 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/TransactionHistoryResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
         '403':
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
         '422':
           $ref: '#/components/responses/UnprocessableEntity'
+        '502':
+          $ref: '#/components/responses/BadGateway'
+        '504':
+          $ref: '#/components/responses/GatewayTimeout'
   /accounts/{accountId}/interest-summary:
     get:
       summary: Annual interest view
       operationId: getInterestView
       parameters:
         - $ref: '#/components/parameters/AccountId'
-        - $ref: '#/components/parameters/XCustomerId'
-        - $ref: '#/components/parameters/XChannel'
         - name: year
           in: query
           required: true
@@ -94,13 +103,27 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/InterestViewResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
         '403':
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
         '422':
           $ref: '#/components/responses/UnprocessableEntity'
+        '502':
+          $ref: '#/components/responses/BadGateway'
+        '504':
+          $ref: '#/components/responses/GatewayTimeout'
 components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: >
+        HS256 JWT. Claims: sub (customer id), channel=web, roles=[ROLE_WEB],
+        iss=xyz-bank, exp.
   parameters:
     CustomerId:
       name: customerId
@@ -114,22 +137,15 @@ components:
       required: true
       schema:
         type: string
-    XCustomerId:
-      name: X-Customer-Id
-      in: header
-      required: true
-      schema:
-        type: string
-    XChannel:
-      name: X-Channel
-      in: header
-      required: true
-      schema:
-        type: string
-        enum: [web]
   responses:
+    Unauthorized:
+      description: Missing, expired, or invalid Bearer token
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetail'
     Forbidden:
-      description: Caller channel is not web
+      description: Caller channel or role is not web
       content:
         application/problem+json:
           schema:
@@ -141,7 +157,19 @@ components:
           schema:
             $ref: '#/components/schemas/ProblemDetail'
     UnprocessableEntity:
-      description: Missing or invalid caller identity or request filter
+      description: Invalid request filter
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetail'
+    BadGateway:
+      description: core-service responded 5xx
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetail'
+    GatewayTimeout:
+      description: core-service did not respond within the BFF timeout
       content:
         application/problem+json:
           schema:

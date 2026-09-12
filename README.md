@@ -13,11 +13,15 @@ Exponer **una API distinta por canal** (web, mobile, ATM) sin que los clientes h
 
 Payloads actuales:
 
-| Canal | Puerto | Qué entrega |
-|---|---|---|
-| Web | 8081 | Dashboard completo: perfil, saldo, últimos movimientos e intereses anuales. También historial filtrable e interés por cuenta. |
-| Mobile | 8082 | Resumen ultraligero y plano: `accountId`, `balance`, `currency`. Sin historial ni metadatos. |
-| ATM | 8083 | Saldo mínimo (`accountId`, `balance`, `currency`) y retiro idempotente. |
+
+| Canal  | Puerto | Qué entrega                                                                                                                   |
+| ------ | ------ | ----------------------------------------------------------------------------------------------------------------------------- |
+| Web    | 8081   | Dashboard completo: perfil, saldo, últimos movimientos e intereses anuales. También historial filtrable e interés por cuenta. |
+| Mobile | 8082   | Resumen ultraligero y plano: `accountId`, `balance`, `currency`. Sin historial ni metadatos.                                  |
+| ATM    | 8083   | Saldo mínimo (`accountId`, `balance`, `currency`) y retiro idempotente.                                                       |
+
+
+
 
 ## Estructura
 
@@ -75,15 +79,21 @@ flowchart LR
   CoreService --> Postgres
 ```
 
-Contratos: [`docs/contracts/`](docs/contracts/). Arquitectura: [`docs/architecture.md`](docs/architecture.md).
+
+
+Contratos: `[docs/contracts/](docs/contracts/)`. Arquitectura: `[docs/architecture.md](docs/architecture.md)`.
 
 ## Instrucciones de ejecución
+
+
 
 ### Prerrequisitos
 
 - Java 21
 - Docker Desktop (o un daemon Docker compatible) con Compose v2
 - Maven 3.9+ (en Windows, el Maven embebido de NetBeans también sirve)
+
+
 
 ### Stack completo (recomendado)
 
@@ -93,13 +103,15 @@ Desde la raíz del repositorio:
 docker compose up --build
 ```
 
-| Servicio | Puerto | Rol |
-|---|---|---|
-| PostgreSQL 16 | 5432 | Datos de `core-service` (Flyway + seed) |
-| core-service | 8080 HTTP | API interna de dominio |
-| bff-web | 8081 HTTPS | Dashboard, historial e intereses |
-| bff-mobile | 8082 HTTPS | Resumen aplanado de cuenta |
-| bff-atm | 8083 HTTPS | Saldo y retiro |
+
+| Servicio      | Puerto     | Rol                                     |
+| ------------- | ---------- | --------------------------------------- |
+| PostgreSQL 16 | 5432       | Datos de `core-service` (Flyway + seed) |
+| core-service  | 8080 HTTP  | API interna de dominio                  |
+| bff-web       | 8081 HTTPS | Dashboard, historial e intereses        |
+| bff-mobile    | 8082 HTTPS | Resumen aplanado de cuenta              |
+| bff-atm       | 8083 HTTPS | Saldo y retiro                          |
+
 
 `core-service` espera a PostgreSQL sano. Los BFF esperan a que `core-service` reporte `/actuator/health` en UP.
 
@@ -110,36 +122,46 @@ docker compose down      # apagar
 docker compose down -v   # apagar y borrar volúmenes (incluye el seed de demo)
 ```
 
+
+
 ### Datos de demo
 
 Tras un arranque limpio, PostgreSQL contiene un cliente y una cuenta fijos (Flyway `V6__seed_demo_data.sql`).
 
-| Recurso | Valor |
-|---|---|
-| Cliente | `11111111-1111-1111-1111-111111111111` |
-| Cuenta | `22222222-2222-2222-2222-222222222222` |
-| Número de cuenta | `1000000001` |
-| Resumen de intereses | año `2025` |
+
+| Recurso              | Valor                                  |
+| -------------------- | -------------------------------------- |
+| Cliente              | `11111111-1111-1111-1111-111111111111` |
+| Cuenta               | `22222222-2222-2222-2222-222222222222` |
+| Número de cuenta     | `1000000001`                           |
+| Resumen de intereses | año `2025`                             |
+
+
+
 
 ### Identidad (JWT)
 
 Los tres BFF exigen `Authorization: Bearer`. El secreto de desarrollo es `JWT_SECRET` (default `dev-only-change-me-use-32-chars-min`). Issuer `xyz-bank`. Algoritmo HS256.
 
-| Claim | Uso |
-|---|---|
-| `sub` | Id del cliente |
-| `channel` | `web`, `mobile` o `atm` |
-| `roles` | `ROLE_WEB`, `ROLE_MOBILE` o `ROLE_ATM` (debe coincidir con el canal) |
-| `terminalId` | Obligatorio si `channel=atm` |
-| `iss` / `exp` | `xyz-bank` y vencimiento |
+
+| Claim         | Uso                                                                  |
+| ------------- | -------------------------------------------------------------------- |
+| `sub`         | Id del cliente                                                       |
+| `channel`     | `web`, `mobile` o `atm`                                              |
+| `roles`       | `ROLE_WEB`, `ROLE_MOBILE` o `ROLE_ATM` (debe coincidir con el canal) |
+| `terminalId`  | Obligatorio si `channel=atm`                                         |
+| `iss` / `exp` | `xyz-bank` y vencimiento                                             |
+
 
 Cabeceras extra:
 
-| Dato | Quién lo envía | Uso |
-|---|---|---|
-| `X-Terminal-Id` | ATM | Debe **coincidir exactamente** con el claim `terminalId` del JWT (403 si falta o no calza) |
-| `Idempotency-Key` | ATM en retiros | Reenvío seguro del mismo retiro |
-| `X-Correlation-Id` | opcional | Si falta, cada BFF genera un UUID y lo propaga a `core-service` |
+
+| Dato               | Quién lo envía | Uso                                                                                        |
+| ------------------ | -------------- | ------------------------------------------------------------------------------------------ |
+| `X-Terminal-Id`    | ATM            | Debe **coincidir exactamente** con el claim `terminalId` del JWT (403 si falta o no calza) |
+| `Idempotency-Key`  | ATM en retiros | Reenvío seguro del mismo retiro                                                            |
+| `X-Correlation-Id` | opcional       | Si falta, cada BFF genera un UUID y lo propaga a `core-service`                            |
+
 
 `X-Customer-Id` / `X-Channel` **no** autentican. No hay login, OAuth2, mTLS ni PIN.
 
@@ -219,6 +241,8 @@ curl -k -sS https://localhost:8081/actuator/health
 curl -k -sS https://localhost:8081/v3/api-docs
 ```
 
+
+
 ### Tests
 
 ```bash
@@ -245,6 +269,8 @@ Los ITs de PostgreSQL usan Testcontainers. Sin Docker se omiten (`disabledWithou
 - **502 Bad Gateway.** `core-service` respondió 5xx. El BFF no reenvía el body interno.
 - **504 Gateway Timeout.** `core-service` no contestó dentro de 3s (tras los reintentos GET).
 
+
+
 ## Decisiones de Arquitectura y Resiliencia
 
 Los BFF son el borde web del sistema. El stack de runtime es Spring Boot web + JWT + HTTPS. **Spring Batch no forma parte de ese borde:** `data-migration` queda fuera del reactor Maven y de Compose. El seed de cuentas vive en Flyway de PostgreSQL (`V6__seed_demo_data.sql`). El directorio `data-migration/` se conserva por si se necesita el job CSV de forma aislada.
@@ -262,18 +288,3 @@ Errores hacia el canal: `@RestControllerAdvice` + RFC 7807 (`application/problem
 - 5xx de core → 502 `Bad Gateway`.
 - Timeout o conexión → 504 `Gateway Timeout`.
 
-Plan de esta fase: [`docs/plan-bff-resilience-standardization.md`](docs/plan-bff-resilience-standardization.md).
-
-## Pruebas con Postman
-
-### GET Dashboard (BFF WEB)
-
-<img width="1025" height="1200" alt="Web-Dashboard" src="https://github.com/user-attachments/assets/0ebdb6f3-067e-4c31-9711-778908a8409e" />
-
-### GET Account Summary (BFF Mobile)
-
-<img width="1015" height="1068" alt="Mobile-Account-Summary" src="https://github.com/user-attachments/assets/8561a394-6046-40e6-a002-159a4f41de51" />
-
-### GET Balance (BFF ATM)
-
-<img width="1015" height="812" alt="ATM-Balance" src="https://github.com/user-attachments/assets/a22b0a09-9a48-47fc-bacb-268b4be13cbf" />

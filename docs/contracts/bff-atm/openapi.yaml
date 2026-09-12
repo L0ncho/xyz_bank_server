@@ -4,11 +4,15 @@ info:
   description: >
     ATM channel backend-for-frontend. Exposes balance inquiry and cash
     withdrawal only. Forwards the terminal Idempotency-Key unchanged so a
-    reconnect after commit replays the original core-service result. Does not
-    access any database and does not expose history, profile, or admin operations.
+    reconnect after commit replays the original core-service result. Authenticates
+    with JWT Bearer HS256 over HTTPS. X-Terminal-Id must match the JWT terminalId
+    claim. Does not access any database and does not expose history, profile, or
+    admin operations. Identity headers (X-Customer-Id, X-Channel) are ignored.
   version: "1.0.0"
 servers:
-  - url: http://localhost:8083
+  - url: https://localhost:8083
+security:
+  - bearerAuth: []
 paths:
   /accounts/{accountId}/balance:
     get:
@@ -16,8 +20,6 @@ paths:
       operationId: getBalance
       parameters:
         - $ref: '#/components/parameters/AccountId'
-        - $ref: '#/components/parameters/XCustomerId'
-        - $ref: '#/components/parameters/XChannel'
         - $ref: '#/components/parameters/XTerminalId'
       responses:
         '200':
@@ -26,20 +28,22 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/BalanceResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
         '403':
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
-        '422':
-          $ref: '#/components/responses/UnprocessableEntity'
+        '502':
+          $ref: '#/components/responses/BadGateway'
+        '504':
+          $ref: '#/components/responses/GatewayTimeout'
   /accounts/{accountId}/withdrawals:
     post:
       summary: Cash withdrawal
       operationId: withdraw
       parameters:
         - $ref: '#/components/parameters/AccountId'
-        - $ref: '#/components/parameters/XCustomerId'
-        - $ref: '#/components/parameters/XChannel'
         - $ref: '#/components/parameters/XTerminalId'
         - name: Idempotency-Key
           in: header
@@ -61,6 +65,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/WithdrawalResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
         '403':
           $ref: '#/components/responses/Forbidden'
         '404':
@@ -73,7 +79,19 @@ paths:
                 $ref: '#/components/schemas/ProblemDetail'
         '422':
           $ref: '#/components/responses/UnprocessableEntity'
+        '502':
+          $ref: '#/components/responses/BadGateway'
+        '504':
+          $ref: '#/components/responses/GatewayTimeout'
 components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: >
+        HS256 JWT. Claims: sub (customer id), channel=atm, roles=[ROLE_ATM],
+        terminalId (required), iss=xyz-bank, exp.
   parameters:
     AccountId:
       name: accountId
@@ -81,28 +99,24 @@ components:
       required: true
       schema:
         type: string
-    XCustomerId:
-      name: X-Customer-Id
-      in: header
-      required: true
-      schema:
-        type: string
-    XChannel:
-      name: X-Channel
-      in: header
-      required: true
-      schema:
-        type: string
-        enum: [atm]
     XTerminalId:
       name: X-Terminal-Id
       in: header
       required: true
       schema:
         type: string
+      description: Must match the JWT terminalId claim exactly
   responses:
+    Unauthorized:
+      description: Missing, expired, or invalid Bearer token
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetail'
     Forbidden:
-      description: Caller channel is not atm
+      description: >
+        Caller channel or role is not atm, or X-Terminal-Id does not match
+        the JWT terminalId claim
       content:
         application/problem+json:
           schema:
@@ -114,7 +128,19 @@ components:
           schema:
             $ref: '#/components/schemas/ProblemDetail'
     UnprocessableEntity:
-      description: Missing terminal identity, missing Idempotency-Key, or invalid request
+      description: Missing Idempotency-Key or invalid withdrawal request
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetail'
+    BadGateway:
+      description: core-service responded 5xx
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetail'
+    GatewayTimeout:
+      description: core-service did not respond within the BFF timeout
       content:
         application/problem+json:
           schema:

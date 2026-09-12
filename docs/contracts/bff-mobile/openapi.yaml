@@ -4,32 +4,20 @@ info:
   description: >
     Mobile channel backend-for-frontend. Returns an ultra-light, flattened
     account summary (accountId, balance, currency) with no transaction history.
-    Does not access any database.
+    Authenticates with JWT Bearer HS256 over HTTPS. Does not access any database.
+    Identity headers (X-Customer-Id, X-Channel) are ignored.
   version: "1.0.0"
 servers:
-  - url: http://localhost:8082
+  - url: https://localhost:8082
+security:
+  - bearerAuth: []
 paths:
   /accounts/{accountId}/summary:
     get:
       summary: Account summary
       operationId: getAccountSummary
       parameters:
-        - name: accountId
-          in: path
-          required: true
-          schema:
-            type: string
-        - name: X-Customer-Id
-          in: header
-          required: true
-          schema:
-            type: string
-        - name: X-Channel
-          in: header
-          required: true
-          schema:
-            type: string
-            enum: [mobile]
+        - $ref: '#/components/parameters/AccountId'
       responses:
         '200':
           description: Flat accountId, balance, and currency only
@@ -37,25 +25,63 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/AccountSummaryResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
         '403':
-          description: Caller channel is not mobile
-          content:
-            application/problem+json:
-              schema:
-                $ref: '#/components/schemas/ProblemDetail'
+          $ref: '#/components/responses/Forbidden'
         '404':
-          description: Unknown account
-          content:
-            application/problem+json:
-              schema:
-                $ref: '#/components/schemas/ProblemDetail'
-        '422':
-          description: Missing or invalid caller identity
-          content:
-            application/problem+json:
-              schema:
-                $ref: '#/components/schemas/ProblemDetail'
+          $ref: '#/components/responses/NotFound'
+        '502':
+          $ref: '#/components/responses/BadGateway'
+        '504':
+          $ref: '#/components/responses/GatewayTimeout'
 components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: >
+        HS256 JWT. Claims: sub (customer id), channel=mobile, roles=[ROLE_MOBILE],
+        iss=xyz-bank, exp.
+  parameters:
+    AccountId:
+      name: accountId
+      in: path
+      required: true
+      schema:
+        type: string
+  responses:
+    Unauthorized:
+      description: Missing, expired, or invalid Bearer token
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetail'
+    Forbidden:
+      description: Caller channel or role is not mobile
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetail'
+    NotFound:
+      description: Unknown account
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetail'
+    BadGateway:
+      description: core-service responded 5xx
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetail'
+    GatewayTimeout:
+      description: core-service did not respond within the BFF timeout
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetail'
   schemas:
     AccountSummaryResponse:
       type: object
