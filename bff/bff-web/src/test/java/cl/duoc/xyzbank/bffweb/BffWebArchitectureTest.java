@@ -48,4 +48,12 @@ class BffWebArchitectureTest {
             .should()
             .dependOnClassesThat()
             .haveFullyQualifiedName("cl.duoc.xyzbank.sharedsecurity.callercontext.HeaderCallerContextAdapter");
+
+    @ArchTest
+    static final ArchRule oidcClientUsageIsConfinedToTheAuthPackage = noClasses()
+            .that()
+            .resideOutsideOfPackage("cl.duoc.xyzbank.bffweb.auth..")
+            .should()
+            .dependOnClassesThat()
+            .resideInAPackage("org.springframework.security.oauth2..");
 }
