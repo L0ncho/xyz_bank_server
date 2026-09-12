@@ -2,23 +2,61 @@ openapi: 3.0.3
 info:
   title: bff-atm
   description: >
-    ATM channel backend-for-frontend. Exposes balance inquiry and cash
-    withdrawal only. Forwards the terminal Idempotency-Key unchanged so a
-    reconnect after commit replays the original core-service result. Does not
-    access any database and does not expose history, profile, or admin operations.
+    ATM channel backend-for-frontend. Exposes PIN verification, balance
+    inquiry, and cash withdrawal only. Forwards the terminal Idempotency-Key
+    unchanged so a reconnect after commit replays the original core-service
+    result. Does not access any database and does not expose history,
+    profile, or admin operations.
+
+    Every request, including PIN verification, must present the ATM
+    terminal's mTLS client certificate (server.ssl.client-auth: need on this
+    service's connector) -- OpenAPI 3.0 has no native way to declare that
+    requirement, so it is documented here rather than as a securityScheme.
+    The two domain endpoints additionally require the 120-second ATM session
+    bearer token obtained from /pin-verifications, bound to that same
+    terminal certificate.
   version: "1.0.0"
 servers:
-  - url: http://localhost:8083
+  - url: https://localhost:8083
+security:
+  - SessionBearer: []
 paths:
+  /pin-verifications:
+    post:
+      summary: Verify a card PIN and obtain a 120-second session
+      description: >
+        Pre-auth endpoint: requires the terminal's mTLS certificate but no
+        session bearer token yet -- that is what this call produces. The PIN
+        is accepted only in the request body, never a query parameter. A
+        locked card and an incorrect PIN are surfaced as distinct outcomes;
+        an unknown card is rejected identically to an incorrect PIN
+        (no card-existence oracle). No response body, log line, or error
+        message ever echoes the submitted PIN.
+      operationId: verifyPin
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PinVerificationRequest'
+      responses:
+        '200':
+          description: Correct PIN; a session bound to this terminal is issued
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AtmSessionResponse'
+        '401':
+          description: Incorrect PIN or unknown card (indistinguishable); no session issued
+        '423':
+          description: Card is locked (third consecutive failure, or already locked); no session issued
   /accounts/{accountId}/balance:
     get:
       summary: Balance inquiry
       operationId: getBalance
       parameters:
         - $ref: '#/components/parameters/AccountId'
-        - $ref: '#/components/parameters/XCustomerId'
-        - $ref: '#/components/parameters/XChannel'
-        - $ref: '#/components/parameters/XTerminalId'
       responses:
         '200':
           description: Current balance and currency
@@ -38,9 +76,6 @@ paths:
       operationId: withdraw
       parameters:
         - $ref: '#/components/parameters/AccountId'
-        - $ref: '#/components/parameters/XCustomerId'
-        - $ref: '#/components/parameters/XChannel'
-        - $ref: '#/components/parameters/XTerminalId'
         - name: Idempotency-Key
           in: header
           required: true
@@ -74,29 +109,20 @@ paths:
         '422':
           $ref: '#/components/responses/UnprocessableEntity'
 components:
+  securitySchemes:
+    SessionBearer:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: >
+        HS256 JWT issued by /pin-verifications, bound to the terminal's mTLS
+        certificate and capped at 120 seconds. Rejected if presented over a
+        connection authenticated with a different terminal certificate than
+        the one it was bound to.
   parameters:
     AccountId:
       name: accountId
       in: path
-      required: true
-      schema:
-        type: string
-    XCustomerId:
-      name: X-Customer-Id
-      in: header
-      required: true
-      schema:
-        type: string
-    XChannel:
-      name: X-Channel
-      in: header
-      required: true
-      schema:
-        type: string
-        enum: [atm]
-    XTerminalId:
-      name: X-Terminal-Id
-      in: header
       required: true
       schema:
         type: string
@@ -114,12 +140,28 @@ components:
           schema:
             $ref: '#/components/schemas/ProblemDetail'
     UnprocessableEntity:
-      description: Missing terminal identity, missing Idempotency-Key, or invalid request
+      description: >
+        Missing bearer token, a session bound to a different terminal than
+        the one presenting it, missing Idempotency-Key, or an invalid request
       content:
         application/problem+json:
           schema:
             $ref: '#/components/schemas/ProblemDetail'
   schemas:
+    PinVerificationRequest:
+      type: object
+      required: [cardNumber, pin]
+      properties:
+        cardNumber:
+          type: string
+        pin:
+          type: string
+    AtmSessionResponse:
+      type: object
+      required: [sessionToken]
+      properties:
+        sessionToken:
+          type: string
     BalanceResponse:
       type: object
       required: [balance, currency]
