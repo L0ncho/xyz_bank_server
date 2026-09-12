@@ -1,12 +1,17 @@
 package cl.duoc.xyzbank.bffatm.balanceinquiry.e2e;
 
+import cl.duoc.xyzbank.sharedsecurity.callercontext.Channel;
+import cl.duoc.xyzbank.sharedsecurity.callercontext.JwtCallerContextAdapter;
 import com.github.tomakehurst.wiremock.WireMockServer;
+import com.github.tomakehurst.wiremock.client.WireMock;
 import io.restassured.RestAssured;
 import io.restassured.config.SSLConfig;
+import io.restassured.specification.RequestSpecification;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -24,6 +29,8 @@ import static org.hamcrest.Matchers.equalTo;
 @DisplayName("The Balance Inquiry controller")
 class BalanceInquiryControllerE2ETest {
 
+    private static final String TERMINAL_ID = "atm-terminal-001";
+
     private static final WireMockServer CORE_SERVICE = new WireMockServer(wireMockConfig().dynamicPort());
 
     static {
@@ -37,6 +44,9 @@ class BalanceInquiryControllerE2ETest {
 
     @LocalServerPort
     private int port;
+
+    @Autowired
+    private JwtCallerContextAdapter tokenAdapter;
 
     @BeforeEach
     void configureRestAssured() {
@@ -55,6 +65,10 @@ class BalanceInquiryControllerE2ETest {
         CORE_SERVICE.stop();
     }
 
+    private RequestSpecification asAtm() {
+        return given().header("Authorization", "Bearer " + tokenAdapter.issue("customer-1", Channel.ATM, TERMINAL_ID));
+    }
+
     @Test
     @DisplayName("returns the account balance")
     void returnsTheAccountBalance() {
@@ -64,10 +78,7 @@ class BalanceInquiryControllerE2ETest {
                         .withHeader("Content-Type", "application/json")
                         .withBody("{\"accountId\":\"account-1\",\"balance\":250.00,\"currency\":\"USD\"}")));
 
-        given()
-                .header("X-Customer-Id", "customer-1")
-                .header("X-Channel", "atm")
-                .header("X-Terminal-Id", "terminal-1")
+        asAtm()
                 .when()
                 .get("/accounts/{accountId}/balance", "account-1")
                 .then()
@@ -80,8 +91,7 @@ class BalanceInquiryControllerE2ETest {
     @DisplayName("rejects a caller whose channel is not atm")
     void rejectsACallerWhoseChannelIsNotAtm() {
         given()
-                .header("X-Customer-Id", "customer-1")
-                .header("X-Channel", "web")
+                .header("Authorization", "Bearer " + tokenAdapter.issue("customer-1", Channel.WEB, null))
                 .when()
                 .get("/accounts/{accountId}/balance", "account-1")
                 .then()
@@ -98,25 +108,32 @@ class BalanceInquiryControllerE2ETest {
                         .withHeader("Content-Type", "application/json")
                         .withBody("{\"accountId\":\"account-1\",\"balance\":250.00,\"currency\":\"USD\"}")));
 
-        given()
-                .header("X-Customer-Id", "customer-1")
-                .header("X-Channel", "atm")
-                .header("X-Terminal-Id", "terminal-1")
+        asAtm()
                 .when()
                 .get("/accounts/{accountId}/balance", "account-1")
                 .then()
                 .statusCode(200);
 
         CORE_SERVICE.verify(getRequestedFor(urlEqualTo("/internal/accounts/account-1/balance"))
-                .withHeader("X-Service-Credential", com.github.tomakehurst.wiremock.client.WireMock.equalTo("dev-service-credential-atm")));
+                .withHeader("X-Service-Credential", WireMock.equalTo("dev-service-credential-atm")));
     }
 
     @Test
-    @DisplayName("rejects a missing terminal id")
-    void rejectsAMissingTerminalId() {
+    @DisplayName("rejects a missing bearer token")
+    void rejectsAMissingBearerToken() {
         given()
-                .header("X-Customer-Id", "customer-1")
-                .header("X-Channel", "atm")
+                .when()
+                .get("/accounts/{accountId}/balance", "account-1")
+                .then()
+                .statusCode(422)
+                .contentType("application/problem+json");
+    }
+
+    @Test
+    @DisplayName("rejects a session bound to a different terminal than the one presenting it")
+    void rejectsASessionBoundToADifferentTerminal() {
+        given()
+                .header("Authorization", "Bearer " + tokenAdapter.issue("customer-1", Channel.ATM, "some-other-terminal"))
                 .when()
                 .get("/accounts/{accountId}/balance", "account-1")
                 .then()
