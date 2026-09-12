@@ -26,7 +26,7 @@ security:
     keystore-password: ${TLS_PIN_KEYSTORE_PASSWORD:xyzbank-dev}
     keystore-type: PKCS12
   enforcement:
-    enabled: false
+    enabled: true
   service-credentials:
     web: ${SERVICE_CREDENTIAL_WEB:dev-service-credential-web}
     mobile: ${SERVICE_CREDENTIAL_MOBILE:dev-service-credential-mobile}
