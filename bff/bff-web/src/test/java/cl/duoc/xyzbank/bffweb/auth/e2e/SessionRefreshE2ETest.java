@@ -33,6 +33,8 @@ class SessionRefreshE2ETest {
      *    both carrying HttpOnly/Secure/SameSite
      * 2. A rejected/reused refresh token clears both cookies and requires re-login
      * 3. No refresh_token cookie at all is rejected without calling core-service
+     * 4. A missing/mismatched CSRF token is rejected before core-service is ever called
+     * 5. A successful rotation also issues a (non-HttpOnly) CSRF cookie
      */
 
     private static final WireMockServer CORE_SERVICE = new WireMockServer(wireMockConfig().dynamicPort());
@@ -76,6 +78,8 @@ class SessionRefreshE2ETest {
 
         Response response = given()
                 .cookie("refresh_token", "old-refresh-token")
+                .cookie("XSRF-TOKEN", "csrf-token-1")
+                .header("X-XSRF-TOKEN", "csrf-token-1")
                 .when()
                 .post("/session/refresh");
 
@@ -95,6 +99,36 @@ class SessionRefreshE2ETest {
         assertTrue(refreshCookie.contains("new-refresh-token"));
         assertTrue(refreshCookie.contains("HttpOnly") && refreshCookie.contains("Secure")
                 && refreshCookie.contains("SameSite"));
+
+        String csrfCookie = setCookieHeaders.stream()
+                .filter(header -> header.startsWith("XSRF-TOKEN="))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("no XSRF-TOKEN cookie set"));
+        assertTrue(!csrfCookie.contains("HttpOnly"), "the CSRF cookie must not be HttpOnly: " + csrfCookie);
+    }
+
+    @Test
+    @DisplayName("rejects a request with a missing or mismatched CSRF token before calling core-service")
+    void rejectsARequestWithAMissingOrMismatchedCsrfToken() {
+        given()
+                .cookie("refresh_token", "old-refresh-token")
+                .when()
+                .post("/session/refresh")
+                .then()
+                .statusCode(403);
+
+        given()
+                .cookie("refresh_token", "old-refresh-token")
+                .cookie("XSRF-TOKEN", "csrf-token-a")
+                .header("X-XSRF-TOKEN", "csrf-token-b")
+                .when()
+                .post("/session/refresh")
+                .then()
+                .statusCode(403);
+
+        CORE_SERVICE.verify(
+                0, com.github.tomakehurst.wiremock.client.WireMock.postRequestedFor(
+                        urlPathEqualTo("/internal/auth/web/refresh-tokens")));
     }
 
     @Test
@@ -109,6 +143,8 @@ class SessionRefreshE2ETest {
 
         Response response = given()
                 .cookie("refresh_token", "reused-token")
+                .cookie("XSRF-TOKEN", "csrf-token-2")
+                .header("X-XSRF-TOKEN", "csrf-token-2")
                 .when()
                 .post("/session/refresh");
 
@@ -123,6 +159,8 @@ class SessionRefreshE2ETest {
     @DisplayName("rejects a request with no refresh_token cookie without calling core-service")
     void rejectsARequestWithNoRefreshTokenCookie() {
         given()
+                .cookie("XSRF-TOKEN", "csrf-token-3")
+                .header("X-XSRF-TOKEN", "csrf-token-3")
                 .when()
                 .post("/session/refresh")
                 .then()
