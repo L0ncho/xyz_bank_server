@@ -1,5 +1,7 @@
 package cl.duoc.xyzbank.bffweb.transactionhistory.e2e;
 
+import cl.duoc.xyzbank.sharedsecurity.callercontext.Channel;
+import cl.duoc.xyzbank.sharedsecurity.callercontext.JwtCallerContextAdapter;
 import com.github.tomakehurst.wiremock.WireMockServer;
 import com.github.tomakehurst.wiremock.client.ResponseDefinitionBuilder;
 import io.restassured.RestAssured;
@@ -7,6 +9,7 @@ import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -45,12 +48,19 @@ class TransactionHistoryControllerE2ETest {
     @LocalServerPort
     private int port;
 
+    @Autowired
+    private JwtCallerContextAdapter tokenAdapter;
+
     @BeforeEach
     void configureRestAssured() {
         RestAssured.port = port;
         RestAssured.baseURI = "https://localhost";
         RestAssured.useRelaxedHTTPSValidation();
         CORE_SERVICE.resetAll();
+    }
+
+    private String sessionCookie() {
+        return tokenAdapter.issue("customer-1", Channel.WEB, null);
     }
 
     @AfterAll
@@ -66,8 +76,7 @@ class TransactionHistoryControllerE2ETest {
                         "{\"items\":[{\"id\":\"tx-1\",\"type\":\"DEBIT\",\"amount\":50.00,\"currency\":\"USD\",\"occurredOn\":\"2026-01-10\",\"description\":null}],\"nextCursor\":null}")));
 
         given()
-                .header("X-Customer-Id", "customer-1")
-                .header("X-Channel", "web")
+                .cookie("session", sessionCookie())
                 .queryParam("from", "2026-01-01")
                 .queryParam("to", "2026-01-31")
                 .queryParam("type", "DEBIT")
@@ -84,8 +93,7 @@ class TransactionHistoryControllerE2ETest {
     @DisplayName("rejects an invalid date range")
     void rejectsAnInvalidDateRange() {
         given()
-                .header("X-Customer-Id", "customer-1")
-                .header("X-Channel", "web")
+                .cookie("session", sessionCookie())
                 .queryParam("from", "2026-02-01")
                 .queryParam("to", "2026-01-01")
                 .when()
@@ -105,8 +113,7 @@ class TransactionHistoryControllerE2ETest {
                         .withBody("{\"detail\":\"Account unknown not found\"}")));
 
         given()
-                .header("X-Customer-Id", "customer-1")
-                .header("X-Channel", "web")
+                .cookie("session", sessionCookie())
                 .when()
                 .get("/accounts/{accountId}/transactions", "unknown")
                 .then()
