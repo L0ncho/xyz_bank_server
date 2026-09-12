@@ -16,6 +16,7 @@ spring:
 
 core-service:
   base-url: ${CORE_SERVICE_BASE_URL:http://localhost:8080}
+  pin-verification-base-url: ${CORE_SERVICE_PIN_VERIFICATION_BASE_URL:https://localhost:8453}
   connect-timeout-ms: 3000
   read-timeout-ms: 3000
   service-credential: ${CORE_SERVICE_CREDENTIAL:dev-service-credential-atm}
