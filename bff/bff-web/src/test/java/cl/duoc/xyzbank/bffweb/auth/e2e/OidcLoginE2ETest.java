@@ -37,6 +37,10 @@ class OidcLoginE2ETest {
      * 1. A successful OIDC callback sets an HttpOnly/Secure/SameSite session cookie carrying
      *    the web channel's full scope set, and obtains a refresh token from core-service
      *    using only the service credential (no user token yet)
+     * 2. A callback where the provider denied authentication (error param) sets no cookie
+     *    and never calls core-service
+     * 3. A callback whose token exchange fails sets no cookie and never calls core-service's
+     *    refresh-token endpoint
      */
 
     private static final MockOidcProvider OIDC_PROVIDER = new MockOidcProvider();
@@ -120,6 +124,63 @@ class OidcLoginE2ETest {
                         urlPathEqualTo("/internal/auth/web/refresh-tokens"))
                 .withHeader("X-Service-Credential", com.github.tomakehurst.wiremock.client.WireMock.equalTo(
                         "dev-service-credential-web")));
+    }
+
+    @Test
+    @DisplayName("sets no cookie and calls core-service for nothing when the provider denies authentication")
+    void setsNoCookieWhenTheProviderDeniesAuthentication() {
+        Response authorizationResponse =
+                given().redirects().follow(false).when().get("/oauth2/authorization/oidc");
+        String location = authorizationResponse.getHeader("Location");
+        String state = URLDecoder.decode(extractQueryParam(location, "state"), StandardCharsets.UTF_8);
+        String jsessionId = authorizationResponse.getCookie("JSESSIONID");
+
+        Response callbackResponse = given()
+                .cookie("JSESSIONID", jsessionId)
+                .queryParam("error", "access_denied")
+                .queryParam("state", state)
+                .redirects().follow(false)
+                .when()
+                .get("/login/oauth2/code/oidc");
+
+        assertNoSessionOrRefreshCookieSet(callbackResponse);
+        CORE_SERVICE.verify(0, com.github.tomakehurst.wiremock.client.WireMock.postRequestedFor(
+                urlPathEqualTo("/internal/auth/web/refresh-tokens")));
+    }
+
+    @Test
+    @DisplayName("sets no cookie and never calls core-service's refresh-token endpoint when the token exchange fails")
+    void setsNoCookieWhenTheTokenExchangeFails() {
+        String code = "auth-code-2";
+        OIDC_PROVIDER.stubFailedTokenExchange(code);
+
+        Response authorizationResponse =
+                given().redirects().follow(false).when().get("/oauth2/authorization/oidc");
+        String location = authorizationResponse.getHeader("Location");
+        String state = URLDecoder.decode(extractQueryParam(location, "state"), StandardCharsets.UTF_8);
+        String jsessionId = authorizationResponse.getCookie("JSESSIONID");
+
+        Response callbackResponse = given()
+                .cookie("JSESSIONID", jsessionId)
+                .queryParam("code", code)
+                .queryParam("state", state)
+                .redirects().follow(false)
+                .when()
+                .get("/login/oauth2/code/oidc");
+
+        assertNoSessionOrRefreshCookieSet(callbackResponse);
+        CORE_SERVICE.verify(0, com.github.tomakehurst.wiremock.client.WireMock.postRequestedFor(
+                urlPathEqualTo("/internal/auth/web/refresh-tokens")));
+    }
+
+    private static void assertNoSessionOrRefreshCookieSet(Response response) {
+        List<String> setCookieHeaders = response.getHeaders().getValues("Set-Cookie");
+        assertTrue(
+                setCookieHeaders.stream().noneMatch(header -> header.startsWith("session=")),
+                "expected no session cookie, got: " + setCookieHeaders);
+        assertTrue(
+                setCookieHeaders.stream().noneMatch(header -> header.startsWith("refresh_token=")),
+                "expected no refresh_token cookie, got: " + setCookieHeaders);
     }
 
     private static String extractQueryParam(String url, String param) {
