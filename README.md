@@ -12,7 +12,9 @@ El login de `bff-web`/`bff-mobile` pasa por ese proveedor OIDC simulado, que sol
 - Docker Desktop (o un daemon Docker compatible) con Compose v2
 - Maven 3.9+ (o el wrapper del módulo de migración si se usa de forma aislada)
 
-## Topología actual del proyecto
+## Topología del proyecto
+
+Cada canal prueba la identidad del llamante con una credencial real en vez de una cabecera de confianza: cookie de sesión OAuth2/OIDC para web, JWT de dispositivo para mobile, y mTLS más una sesión verificada por PIN para ATM. Todo borde de cara al cliente es TLS; el borde BFF→`core-service` sigue siendo HTTP plano salvo la única llamada que transporta un PIN, que es TLS-only por diseño.
 
 ```mermaid
 flowchart LR
@@ -22,26 +24,31 @@ flowchart LR
     AtmClient[ATM client]
   end
 
-  subgraph bffs [BFFs]
-    BffWeb[bff-web :8081]
-    BffMobile[bff-mobile :8082]
-    BffAtm[bff-atm :8083]
+  subgraph bffs [BFFs - channel auth]
+    BffWeb[bff-web :8081 OAuth2/OIDC session cookie]
+    BffMobile[bff-mobile :8082 device-bound JWT]
+    BffAtm[bff-atm :8083 mTLS + PIN session]
   end
 
   CoreService[core-service :8080]
+  CoreServicePin[core-service :8453 PIN-verification connector]
   Postgres[(PostgreSQL 16)]
   MySQL[(MySQL 8.4)]
   Migration[data-migration one-shot]
 
-  WebClient --> BffWeb
-  MobileClient --> BffMobile
-  AtmClient --> BffAtm
-  BffWeb --> CoreService
-  BffMobile --> CoreService
-  BffAtm --> CoreService
+  WebClient -- HTTPS --> BffWeb
+  MobileClient -- HTTPS --> BffMobile
+  AtmClient -- HTTPS + mTLS --> BffAtm
+  BffWeb -- HTTP --> CoreService
+  BffMobile -- HTTP --> CoreService
+  BffAtm -- HTTP --> CoreService
+  BffAtm -- HTTPS --> CoreServicePin
   CoreService --> Postgres
+  CoreServicePin -.-> CoreService
   Migration --> MySQL
 ```
+
+`CoreServicePin` es un segundo conector Tomcat del mismo `core-service`, no un servicio aparte — comparte proceso y acceso a base de datos; se dibuja por separado solo para mostrar que ese conector exige TLS mientras el resto de `core-service` sigue en HTTP plano. Detalle completo de cada credencial por canal en `docs/contracts/*/openapi.yaml` y en `docs/architecture.md`.
 
 ## Arranque local
 
