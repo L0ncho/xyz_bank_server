@@ -4,6 +4,7 @@ import cl.duoc.xyzbank.bffweb.dashboard.application.ports.AccountsPort;
 import cl.duoc.xyzbank.bffweb.dashboard.application.ports.CustomerProfilePort;
 import cl.duoc.xyzbank.bffweb.dashboard.application.ports.TransactionsPort;
 import cl.duoc.xyzbank.bffweb.dashboard.application.usecases.DashboardUseCase;
+import cl.duoc.xyzbank.bffweb.shared.infrastructure.concurrency.MdcPropagatingExecutor;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -15,7 +16,7 @@ public class DashboardConfig {
 
     @Bean
     public Executor dashboardExecutor() {
-        return Executors.newVirtualThreadPerTaskExecutor();
+        return new MdcPropagatingExecutor(Executors.newVirtualThreadPerTaskExecutor());
     }
 
     @Bean

@@ -11,14 +11,12 @@ import cl.duoc.xyzbank.bffweb.dashboard.application.ports.TransactionsPort;
 import cl.duoc.xyzbank.bffweb.dashboard.application.usecases.DashboardUseCase;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.slf4j.MDC;
 
 import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.Executors;
 import java.util.stream.IntStream;
 
@@ -38,7 +36,9 @@ class DashboardUseCaseTest {
      * 4. An accounts port failure propagates and returns no partial aggregate
      * 5. A transactions port failure propagates and returns no partial aggregate
      * 6. Per-account transaction calls run concurrently, not serially
-     * 7. The caller's MDC (correlation id, bearer token) is visible inside every concurrent call
+     *
+     * MDC (correlation id, bearer token) propagation across the executor's worker threads is
+     * MdcPropagatingExecutor's responsibility, not the use case's -- see MdcPropagatingExecutorTest.
      */
 
     @Test
@@ -154,41 +154,6 @@ class DashboardUseCaseTest {
                 elapsed.compareTo(perCallDelay.multipliedBy(accountCount)) < 0,
                 () -> "expected concurrent execution well under " + perCallDelay.multipliedBy(accountCount)
                         + " but took " + elapsed);
-    }
-
-    @Test
-    @DisplayName("propagates the caller's MDC context into every concurrently-invoked transactions call")
-    void propagatesCallerMdcIntoEveryConcurrentTransactionsCall() {
-        CustomerProfile profile = new CustomerProfile("customer-6", "Diego Fuentes", "diego@example.com");
-        List<AccountBalance> accounts = IntStream.range(0, 3)
-                .mapToObj(i -> new AccountBalance("account-" + i, "200000000" + i, BigDecimal.ONE, "USD"))
-                .toList();
-        List<String> observedCorrelationIds = new CopyOnWriteArrayList<>();
-        RecordingTransactionsPort transactionsPort = new RecordingTransactionsPort(observedCorrelationIds);
-
-        DashboardUseCase useCase = new DashboardUseCase(
-                new StubCustomerProfilePort(profile),
-                new StubAccountsPort(accounts),
-                transactionsPort,
-                Executors.newVirtualThreadPerTaskExecutor());
-
-        MDC.put("correlationId", "corr-test-1");
-        try {
-            useCase.execute("customer-6");
-        } finally {
-            MDC.clear();
-        }
-
-        assertEquals(accounts.size(), observedCorrelationIds.size());
-        observedCorrelationIds.forEach(observed -> assertEquals("corr-test-1", observed));
-    }
-
-    private record RecordingTransactionsPort(List<String> observedCorrelationIds) implements TransactionsPort {
-        @Override
-        public List<RecentTransaction> fetchLatestTransactions(String accountId, int pageSize) {
-            observedCorrelationIds.add(MDC.get("correlationId"));
-            return List.of();
-        }
     }
 
     private record SleepingTransactionsPort(Duration delay) implements TransactionsPort {
