@@ -9,6 +9,8 @@ server:
     trust-store-password: ${TLS_TRUSTSTORE_PASSWORD:xyzbank-dev}
     trust-store-type: PKCS12
     client-auth: need
+  compression:
+    enabled: true
 
 spring:
   application:
