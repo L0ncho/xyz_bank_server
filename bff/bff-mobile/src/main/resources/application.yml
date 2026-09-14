@@ -5,6 +5,8 @@ server:
     key-store: ${TLS_KEYSTORE_PATH:classpath:tls/keystore.p12}
     key-store-password: ${TLS_KEYSTORE_PASSWORD:xyzbank-dev}
     key-store-type: PKCS12
+  compression:
+    enabled: true
 
 spring:
   application:

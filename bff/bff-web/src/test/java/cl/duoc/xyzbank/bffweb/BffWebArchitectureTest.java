@@ -46,4 +46,12 @@ class BffWebArchitectureTest {
             .should()
             .dependOnClassesThat()
             .resideInAPackage("org.springframework.security.oauth2..");
+
+    @ArchTest
+    static final ArchRule useCasesDoNotPropagateLoggingContextThemselves = noClasses()
+            .that()
+            .resideInAPackage("..application.usecases..")
+            .should()
+            .dependOnClassesThat()
+            .haveFullyQualifiedName("org.slf4j.MDC");
 }

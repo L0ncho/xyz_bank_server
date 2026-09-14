@@ -9,6 +9,8 @@ import cl.duoc.xyzbank.bffweb.dashboard.application.ports.CustomerProfilePort;
 import cl.duoc.xyzbank.bffweb.dashboard.application.ports.TransactionsPort;
 
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executor;
 
 public class DashboardUseCase {
 
@@ -17,22 +19,29 @@ public class DashboardUseCase {
     private final CustomerProfilePort customerProfilePort;
     private final AccountsPort accountsPort;
     private final TransactionsPort transactionsPort;
+    private final Executor executor;
 
     public DashboardUseCase(
             CustomerProfilePort customerProfilePort,
             AccountsPort accountsPort,
-            TransactionsPort transactionsPort) {
+            TransactionsPort transactionsPort,
+            Executor executor) {
         this.customerProfilePort = customerProfilePort;
         this.accountsPort = accountsPort;
         this.transactionsPort = transactionsPort;
+        this.executor = executor;
     }
 
     public DashboardResponse execute(String customerId) {
         CustomerProfile profile = customerProfilePort.fetchProfile(customerId);
         List<AccountBalance> accounts = accountsPort.fetchAccountsForCustomer(customerId);
-        List<AccountSummary> accountSummaries = accounts.stream()
-                .map(this::toAccountSummary)
+
+        List<CompletableFuture<AccountSummary>> summaryFutures = accounts.stream()
+                .map(account -> CompletableFuture.supplyAsync(() -> toAccountSummary(account), executor))
                 .toList();
+        List<AccountSummary> accountSummaries =
+                summaryFutures.stream().map(CompletableFuture::join).toList();
+
         return new DashboardResponse(profile, accountSummaries);
     }
 
