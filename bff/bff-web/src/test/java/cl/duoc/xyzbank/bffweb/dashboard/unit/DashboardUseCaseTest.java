@@ -11,13 +11,20 @@ import cl.duoc.xyzbank.bffweb.dashboard.application.ports.TransactionsPort;
 import cl.duoc.xyzbank.bffweb.dashboard.application.usecases.DashboardUseCase;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.slf4j.MDC;
 
 import java.math.BigDecimal;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.Executors;
+import java.util.stream.IntStream;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
 
 @DisplayName("The Dashboard use case")
@@ -30,6 +37,8 @@ class DashboardUseCaseTest {
      * 3. Unknown customer propagates the profile port's failure without calling other ports
      * 4. An accounts port failure propagates and returns no partial aggregate
      * 5. A transactions port failure propagates and returns no partial aggregate
+     * 6. Per-account transaction calls run concurrently, not serially
+     * 7. The caller's MDC (correlation id, bearer token) is visible inside every concurrent call
      */
 
     @Test
@@ -46,7 +55,8 @@ class DashboardUseCaseTest {
                 new StubAccountsPort(List.of(accountA, accountB)),
                 new StubTransactionsPort(Map.of(
                         "account-1", List.of(txA),
-                        "account-2", List.of(txB))));
+                        "account-2", List.of(txB))),
+                Runnable::run);
 
         DashboardResponse response = useCase.execute("customer-1");
 
@@ -66,7 +76,8 @@ class DashboardUseCaseTest {
         DashboardUseCase useCase = new DashboardUseCase(
                 new StubCustomerProfilePort(profile),
                 new StubAccountsPort(List.of()),
-                new PoisonTransactionsPort());
+                new PoisonTransactionsPort(),
+                Runnable::run);
 
         DashboardResponse response = useCase.execute("customer-2");
 
@@ -82,7 +93,8 @@ class DashboardUseCaseTest {
                     throw new RuntimeException("Customer " + customerId + " not found");
                 },
                 new PoisonAccountsPort(),
-                new PoisonTransactionsPort());
+                new PoisonTransactionsPort(),
+                Runnable::run);
 
         assertThrows(RuntimeException.class, () -> useCase.execute("unknown-customer"));
     }
@@ -96,7 +108,8 @@ class DashboardUseCaseTest {
                 customerId -> {
                     throw new RuntimeException("core-service unreachable");
                 },
-                new PoisonTransactionsPort());
+                new PoisonTransactionsPort(),
+                Runnable::run);
 
         assertThrows(RuntimeException.class, () -> useCase.execute("customer-3"));
     }
@@ -111,9 +124,84 @@ class DashboardUseCaseTest {
                 new StubAccountsPort(List.of(account)),
                 (accountId, pageSize) -> {
                     throw new RuntimeException("core-service unreachable");
-                });
+                },
+                Runnable::run);
 
         assertThrows(RuntimeException.class, () -> useCase.execute("customer-4"));
+    }
+
+    @Test
+    @DisplayName("fetches every account's latest transactions concurrently, not serially")
+    void fetchesLatestTransactionsConcurrentlyNotSerially() {
+        CustomerProfile profile = new CustomerProfile("customer-5", "Paula Vidal", "paula@example.com");
+        int accountCount = 5;
+        Duration perCallDelay = Duration.ofMillis(100);
+        List<AccountBalance> accounts = IntStream.range(0, accountCount)
+                .mapToObj(i -> new AccountBalance("account-" + i, "100000000" + i, BigDecimal.TEN, "USD"))
+                .toList();
+
+        DashboardUseCase useCase = new DashboardUseCase(
+                new StubCustomerProfilePort(profile),
+                new StubAccountsPort(accounts),
+                new SleepingTransactionsPort(perCallDelay),
+                Executors.newVirtualThreadPerTaskExecutor());
+
+        Instant start = Instant.now();
+        useCase.execute("customer-5");
+        Duration elapsed = Duration.between(start, Instant.now());
+
+        assertTrue(
+                elapsed.compareTo(perCallDelay.multipliedBy(accountCount)) < 0,
+                () -> "expected concurrent execution well under " + perCallDelay.multipliedBy(accountCount)
+                        + " but took " + elapsed);
+    }
+
+    @Test
+    @DisplayName("propagates the caller's MDC context into every concurrently-invoked transactions call")
+    void propagatesCallerMdcIntoEveryConcurrentTransactionsCall() {
+        CustomerProfile profile = new CustomerProfile("customer-6", "Diego Fuentes", "diego@example.com");
+        List<AccountBalance> accounts = IntStream.range(0, 3)
+                .mapToObj(i -> new AccountBalance("account-" + i, "200000000" + i, BigDecimal.ONE, "USD"))
+                .toList();
+        List<String> observedCorrelationIds = new CopyOnWriteArrayList<>();
+        RecordingTransactionsPort transactionsPort = new RecordingTransactionsPort(observedCorrelationIds);
+
+        DashboardUseCase useCase = new DashboardUseCase(
+                new StubCustomerProfilePort(profile),
+                new StubAccountsPort(accounts),
+                transactionsPort,
+                Executors.newVirtualThreadPerTaskExecutor());
+
+        MDC.put("correlationId", "corr-test-1");
+        try {
+            useCase.execute("customer-6");
+        } finally {
+            MDC.clear();
+        }
+
+        assertEquals(accounts.size(), observedCorrelationIds.size());
+        observedCorrelationIds.forEach(observed -> assertEquals("corr-test-1", observed));
+    }
+
+    private record RecordingTransactionsPort(List<String> observedCorrelationIds) implements TransactionsPort {
+        @Override
+        public List<RecentTransaction> fetchLatestTransactions(String accountId, int pageSize) {
+            observedCorrelationIds.add(MDC.get("correlationId"));
+            return List.of();
+        }
+    }
+
+    private record SleepingTransactionsPort(Duration delay) implements TransactionsPort {
+        @Override
+        public List<RecentTransaction> fetchLatestTransactions(String accountId, int pageSize) {
+            try {
+                Thread.sleep(delay);
+            } catch (InterruptedException exception) {
+                Thread.currentThread().interrupt();
+                throw new RuntimeException(exception);
+            }
+            return List.of();
+        }
     }
 
     private record StubCustomerProfilePort(CustomerProfile profile) implements CustomerProfilePort {
