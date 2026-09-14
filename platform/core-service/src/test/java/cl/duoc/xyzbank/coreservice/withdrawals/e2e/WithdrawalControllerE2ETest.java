@@ -1,13 +1,18 @@
 package cl.duoc.xyzbank.coreservice.withdrawals.e2e;
 
 import cl.duoc.xyzbank.coredomain.accounts.domain.entities.Account;
+import cl.duoc.xyzbank.coredomain.accounts.domain.entities.Customer;
 import cl.duoc.xyzbank.coredomain.accounts.domain.repositories.AccountRepository;
+import cl.duoc.xyzbank.coredomain.accounts.domain.repositories.CustomerRepository;
 import cl.duoc.xyzbank.coredomain.accounts.domain.valueobjects.AccountNumber;
 import cl.duoc.xyzbank.coredomain.accounts.domain.valueobjects.Money;
 import cl.duoc.xyzbank.coredomain.shared.domain.Id;
+import cl.duoc.xyzbank.sharedsecurity.callercontext.Channel;
+import cl.duoc.xyzbank.sharedsecurity.callercontext.JwtCallerContextAdapter;
 import cl.duoc.xyzbank.testsupport.AbstractPostgresIT;
 import io.restassured.RestAssured;
 import io.restassured.response.Response;
+import io.restassured.specification.RequestSpecification;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -51,9 +56,25 @@ class WithdrawalControllerE2ETest extends AbstractPostgresIT {
     @Autowired
     private AccountRepository accountRepository;
 
+    @Autowired
+    private CustomerRepository customerRepository;
+
+    @Autowired
+    private JwtCallerContextAdapter tokenAdapter;
+
+    private Id ownerId;
+
     @BeforeEach
     void configureRestAssured() {
         RestAssured.port = port;
+        ownerId = Id.generate();
+        customerRepository.save(Customer.create(ownerId, "Jane Doe", "jane.doe+" + ownerId.getValue() + "@xyzbank.cl"));
+    }
+
+    private RequestSpecification asOwner() {
+        return given()
+                .header("X-Service-Credential", "dev-service-credential-atm")
+                .header("Authorization", "Bearer " + tokenAdapter.issue(ownerId.getValue(), Channel.ATM, "terminal-1"));
     }
 
     @Test
@@ -61,7 +82,7 @@ class WithdrawalControllerE2ETest extends AbstractPostgresIT {
     void returns201AndTheNewBalanceIsReflectedByAFollowUpGet() {
         Id accountId = anExistingAccount("500.00");
 
-        given()
+        asOwner()
                 .header("Idempotency-Key", "e2e-key-1")
                 .contentType("application/json")
                 .body(Map.of("amount", 100.00, "currency", "USD"))
@@ -71,7 +92,7 @@ class WithdrawalControllerE2ETest extends AbstractPostgresIT {
                 .body("newBalance", equalTo(400.00f))
                 .body("accountId", equalTo(accountId.getValue()));
 
-        given()
+        asOwner()
                 .when().get("/internal/accounts/{accountId}/balance", accountId.getValue())
                 .then()
                 .statusCode(200)
@@ -81,7 +102,7 @@ class WithdrawalControllerE2ETest extends AbstractPostgresIT {
     @Test
     @DisplayName("returns 404 for an unknown account")
     void returnsNotFoundForAnUnknownAccount() {
-        given()
+        asOwner()
                 .header("Idempotency-Key", "e2e-key-2")
                 .contentType("application/json")
                 .body(Map.of("amount", 10.00, "currency", "USD"))
@@ -96,7 +117,7 @@ class WithdrawalControllerE2ETest extends AbstractPostgresIT {
     void returnsUnprocessableEntityForAMissingIdempotencyKeyHeader() {
         Id accountId = anExistingAccount("500.00");
 
-        given()
+        asOwner()
                 .contentType("application/json")
                 .body(Map.of("amount", 10.00, "currency", "USD"))
                 .when().post("/internal/accounts/{accountId}/withdrawals", accountId.getValue())
@@ -110,7 +131,7 @@ class WithdrawalControllerE2ETest extends AbstractPostgresIT {
     void returnsUnprocessableEntityForANonPositiveAmount() {
         Id accountId = anExistingAccount("500.00");
 
-        given()
+        asOwner()
                 .header("Idempotency-Key", "e2e-key-3")
                 .contentType("application/json")
                 .body(Map.of("amount", 0.00, "currency", "USD"))
@@ -125,7 +146,7 @@ class WithdrawalControllerE2ETest extends AbstractPostgresIT {
     void returnsUnprocessableEntityForACurrencyMismatch() {
         Id accountId = anExistingAccount("500.00");
 
-        given()
+        asOwner()
                 .header("Idempotency-Key", "e2e-key-4")
                 .contentType("application/json")
                 .body(Map.of("amount", 10.00, "currency", "CLP"))
@@ -140,7 +161,7 @@ class WithdrawalControllerE2ETest extends AbstractPostgresIT {
     void returnsUnprocessableEntityForInsufficientFundsAndTheBalanceIsUnchangedAfterward() {
         Id accountId = anExistingAccount("50.00");
 
-        given()
+        asOwner()
                 .header("Idempotency-Key", "e2e-key-5")
                 .contentType("application/json")
                 .body(Map.of("amount", 100.00, "currency", "USD"))
@@ -149,7 +170,7 @@ class WithdrawalControllerE2ETest extends AbstractPostgresIT {
                 .statusCode(422)
                 .contentType("application/problem+json");
 
-        given()
+        asOwner()
                 .when().get("/internal/accounts/{accountId}/balance", accountId.getValue())
                 .then()
                 .statusCode(200)
@@ -163,7 +184,7 @@ class WithdrawalControllerE2ETest extends AbstractPostgresIT {
         // check specifically, not insufficient funds (the default app.withdrawals.daily-limit is 5000.00).
         Id accountId = anExistingAccount("50000.00");
 
-        given()
+        asOwner()
                 .header("Idempotency-Key", "e2e-key-6")
                 .contentType("application/json")
                 .body(Map.of("amount", 6000.00, "currency", "USD"))
@@ -172,7 +193,7 @@ class WithdrawalControllerE2ETest extends AbstractPostgresIT {
                 .statusCode(422)
                 .contentType("application/problem+json");
 
-        given()
+        asOwner()
                 .when().get("/internal/accounts/{accountId}/balance", accountId.getValue())
                 .then()
                 .statusCode(200)
@@ -185,7 +206,7 @@ class WithdrawalControllerE2ETest extends AbstractPostgresIT {
         Id accountId = anExistingAccount("500.00");
         Map<String, Object> body = Map.of("amount", 100.00, "currency", "USD");
 
-        given()
+        asOwner()
                 .header("Idempotency-Key", "e2e-key-7")
                 .contentType("application/json")
                 .body(body)
@@ -193,7 +214,7 @@ class WithdrawalControllerE2ETest extends AbstractPostgresIT {
                 .then()
                 .statusCode(201);
 
-        given()
+        asOwner()
                 .header("Idempotency-Key", "e2e-key-7")
                 .contentType("application/json")
                 .body(body)
@@ -202,7 +223,7 @@ class WithdrawalControllerE2ETest extends AbstractPostgresIT {
                 .statusCode(201)
                 .body("newBalance", equalTo(400.00f));
 
-        given()
+        asOwner()
                 .when().get("/internal/accounts/{accountId}/balance", accountId.getValue())
                 .then()
                 .statusCode(200)
@@ -214,7 +235,7 @@ class WithdrawalControllerE2ETest extends AbstractPostgresIT {
     void repeatingAnIdempotencyKeyWithADifferentAmountReturns409() {
         Id accountId = anExistingAccount("500.00");
 
-        given()
+        asOwner()
                 .header("Idempotency-Key", "e2e-key-8")
                 .contentType("application/json")
                 .body(Map.of("amount", 100.00, "currency", "USD"))
@@ -222,7 +243,7 @@ class WithdrawalControllerE2ETest extends AbstractPostgresIT {
                 .then()
                 .statusCode(201);
 
-        given()
+        asOwner()
                 .header("Idempotency-Key", "e2e-key-8")
                 .contentType("application/json")
                 .body(Map.of("amount", 50.00, "currency", "USD"))
@@ -231,7 +252,7 @@ class WithdrawalControllerE2ETest extends AbstractPostgresIT {
                 .statusCode(409)
                 .contentType("application/problem+json");
 
-        given()
+        asOwner()
                 .when().get("/internal/accounts/{accountId}/balance", accountId.getValue())
                 .then()
                 .statusCode(200)
@@ -243,13 +264,13 @@ class WithdrawalControllerE2ETest extends AbstractPostgresIT {
     void exactlyOneOfTwoConcurrentWithdrawalsOnTheSameAccountSucceeds() {
         Id accountId = anExistingAccount("100.00");
 
-        CompletableFuture<Integer> first = CompletableFuture.supplyAsync(() -> given()
+        CompletableFuture<Integer> first = CompletableFuture.supplyAsync(() -> asOwner()
                 .header("Idempotency-Key", "e2e-key-9a")
                 .contentType("application/json")
                 .body(Map.of("amount", 60.00, "currency", "USD"))
                 .when().post("/internal/accounts/{accountId}/withdrawals", accountId.getValue())
                 .statusCode());
-        CompletableFuture<Integer> second = CompletableFuture.supplyAsync(() -> given()
+        CompletableFuture<Integer> second = CompletableFuture.supplyAsync(() -> asOwner()
                 .header("Idempotency-Key", "e2e-key-9b")
                 .contentType("application/json")
                 .body(Map.of("amount", 60.00, "currency", "USD"))
@@ -264,7 +285,7 @@ class WithdrawalControllerE2ETest extends AbstractPostgresIT {
         assertEquals(1, successCount);
         assertEquals(1, conflictCount);
 
-        given()
+        asOwner()
                 .when().get("/internal/accounts/{accountId}/balance", accountId.getValue())
                 .then()
                 .statusCode(200)
@@ -277,12 +298,12 @@ class WithdrawalControllerE2ETest extends AbstractPostgresIT {
         Id accountId = anExistingAccount("100.00");
         Map<String, Object> body = Map.of("amount", 60.00, "currency", "USD");
 
-        CompletableFuture<Response> first = CompletableFuture.supplyAsync(() -> given()
+        CompletableFuture<Response> first = CompletableFuture.supplyAsync(() -> asOwner()
                 .header("Idempotency-Key", "e2e-key-10")
                 .contentType("application/json")
                 .body(body)
                 .when().post("/internal/accounts/{accountId}/withdrawals", accountId.getValue()));
-        CompletableFuture<Response> second = CompletableFuture.supplyAsync(() -> given()
+        CompletableFuture<Response> second = CompletableFuture.supplyAsync(() -> asOwner()
                 .header("Idempotency-Key", "e2e-key-10")
                 .contentType("application/json")
                 .body(body)
@@ -301,7 +322,7 @@ class WithdrawalControllerE2ETest extends AbstractPostgresIT {
             assertEquals(firstResponse.path("transactionId").toString(), secondResponse.path("transactionId").toString());
         }
 
-        given()
+        asOwner()
                 .when().get("/internal/accounts/{accountId}/balance", accountId.getValue())
                 .then()
                 .statusCode(200)
@@ -311,7 +332,7 @@ class WithdrawalControllerE2ETest extends AbstractPostgresIT {
     private Id anExistingAccount(String balance) {
         Id accountId = Id.generate();
         accountRepository.save(Account.create(
-                accountId, AccountNumber.create(randomAccountNumber()), Id.generate(),
+                accountId, AccountNumber.create(randomAccountNumber()), ownerId,
                 Money.create(new BigDecimal(balance), "USD")));
         return accountId;
     }

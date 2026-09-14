@@ -2,17 +2,124 @@ openapi: 3.0.3
 info:
   title: core-service — accounts
   description: >
-    Internal, read-only endpoints for customer profiles and account balances.
-    core-service is the only component with database access; these endpoints
-    are internal-network-only and are not exposed through any BFF.
+    Internal endpoints for customer profiles, account balances, and channel
+    authentication. core-service is the only component with database access;
+    these endpoints are internal-network-only and are not exposed through any
+    BFF. Every endpoint requires the calling BFF's service credential; the
+    seven domain endpoints additionally require a valid user bearer token
+    carrying the scope shown in that operation's description. The four
+    pre-auth endpoints (called before any user token exists) require only the
+    service credential.
   version: "1.0.0"
 servers:
   - url: http://localhost:8080
+security:
+  - ServiceCredential: []
 paths:
+  /internal/auth/atm/pin-verifications:
+    post:
+      summary: Verify a card PIN and report the owning customer id
+      description: >
+        Pre-auth endpoint (service credential only). The PIN is accepted only
+        in the request body, never a query parameter or path segment. Served
+        exclusively over this operation's TLS-only connector (design.md
+        Decision 8); the same request over the plain-HTTP connector is
+        rejected. On a third consecutive failure the card locks (423);
+        further attempts, including a correct PIN, are rejected identically
+        until a developer resets it (scripts/reset-dev-card-lock.sh — there
+        is no customer-facing unlock path). An unknown card number is
+        rejected identically to an incorrect PIN (401), never distinguished,
+        to avoid a card-existence oracle.
+      operationId: verifyPin
+      servers:
+        - url: https://localhost:8453
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PinVerificationRequest'
+      responses:
+        '200':
+          description: Correct PIN; resets the failure count
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PinVerificationResponse'
+        '401':
+          description: Incorrect PIN or unknown card (indistinguishable)
+        '423':
+          description: Card is locked (third consecutive failure, or already locked)
+  /internal/auth/web/refresh-tokens:
+    post:
+      summary: Rotate a web refresh token
+      description: >
+        Pre-auth endpoint (service credential only). Rotation is not
+        idempotent: presenting an already-used (rotated or revoked) token is
+        rejected and revokes the rest of that token's chain, rather than
+        replaying the prior result.
+      operationId: rotateWebRefreshToken
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefreshTokenRequest'
+      responses:
+        '200':
+          description: A new session and refresh token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RefreshTokenResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /internal/auth/mobile/devices/{deviceId}/refresh-tokens:
+    post:
+      summary: Rotate a device-bound mobile refresh token
+      description: >
+        Pre-auth endpoint (service credential only). Rejects a refresh token
+        presented against a device it was not issued for, or a revoked
+        device, identically to an unknown token (404) — no existence oracle.
+        Also not idempotent (see the web refresh-token endpoint).
+      operationId: rotateMobileRefreshToken
+      parameters:
+        - $ref: '#/components/parameters/DeviceId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefreshTokenRequest'
+      responses:
+        '200':
+          description: A new session and refresh token, bound to the same device
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RefreshTokenResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /internal/auth/mobile/devices/{deviceId}/revocations:
+    post:
+      summary: Revoke one mobile device
+      description: >
+        Pre-auth endpoint (service credential only). Revoking one device does
+        not affect any other device registered to the same customer.
+      operationId: revokeMobileDevice
+      parameters:
+        - $ref: '#/components/parameters/DeviceId'
+      responses:
+        '204':
+          description: The device is revoked (or was already revoked)
   /internal/customers/{customerId}:
     get:
       summary: Get a customer's profile
+      description: Domain endpoint. Requires the `web:customers:read` scope.
       operationId: getCustomerProfile
+      security:
+        - ServiceCredential: []
+          BearerAuth: []
       parameters:
         - $ref: '#/components/parameters/CustomerId'
       responses:
@@ -29,7 +136,11 @@ paths:
   /internal/customers/{customerId}/accounts:
     get:
       summary: List the accounts owned by a customer
+      description: Domain endpoint. Requires the `web:accounts:read` scope.
       operationId: listAccountsForCustomer
+      security:
+        - ServiceCredential: []
+          BearerAuth: []
       parameters:
         - $ref: '#/components/parameters/CustomerId'
       responses:
@@ -50,7 +161,14 @@ paths:
   /internal/accounts/{accountId}/balance:
     get:
       summary: Get an account's current balance
+      description: >
+        Domain endpoint. Requires one of `web:accounts:read`,
+        `mobile:accounts:read`, or `atm:read-balance`, depending on the
+        calling channel.
       operationId: getAccountBalance
+      security:
+        - ServiceCredential: []
+          BearerAuth: []
       parameters:
         - $ref: '#/components/parameters/AccountId'
       responses:
@@ -71,8 +189,13 @@ paths:
         Cursor-paginated, ordered most-recent-first. Pass a previous response's
         nextCursor value back as the cursor parameter to fetch the next page.
         pageSize is capped at 100 (returning fewer items, not an error) and
-        defaults to 20 when omitted.
+        defaults to 20 when omitted. Domain endpoint. Requires one of
+        `web:transactions:read` or `mobile:transactions:read`, depending on
+        the calling channel.
       operationId: listAccountTransactions
+      security:
+        - ServiceCredential: []
+          BearerAuth: []
       parameters:
         - $ref: '#/components/parameters/AccountId'
         - name: from
@@ -119,7 +242,14 @@ paths:
   /internal/transactions/{transactionId}:
     get:
       summary: Get a transaction's detail
+      description: >
+        Domain endpoint. Requires one of `web:transactions:read` or
+        `mobile:transactions:read`, depending on the calling channel.
+        Ownership resolves through the transaction's account.
       operationId: getTransactionDetail
+      security:
+        - ServiceCredential: []
+          BearerAuth: []
       parameters:
         - name: transactionId
           in: path
@@ -140,7 +270,11 @@ paths:
   /internal/accounts/{accountId}/interest-summary:
     get:
       summary: Get an account's annual interest summary
+      description: Domain endpoint. Requires the `web:interests:read` scope.
       operationId: getAnnualInterestSummary
+      security:
+        - ServiceCredential: []
+          BearerAuth: []
       parameters:
         - $ref: '#/components/parameters/AccountId'
         - name: year
@@ -170,7 +304,11 @@ paths:
         a platform-wide daily withdrawal limit and never allows a negative
         balance. Detects concurrent updates to the same account via
         optimistic locking and returns a conflict to the losing request.
+        Domain endpoint. Requires the `atm:withdraw` scope.
       operationId: withdrawFromAccount
+      security:
+        - ServiceCredential: []
+          BearerAuth: []
       parameters:
         - $ref: '#/components/parameters/AccountId'
         - name: Idempotency-Key
@@ -198,6 +336,23 @@ paths:
         '422':
           $ref: '#/components/responses/UnprocessableEntity'
 components:
+  securitySchemes:
+    ServiceCredential:
+      type: apiKey
+      in: header
+      name: X-Service-Credential
+      description: >
+        Static, per-BFF shared secret. Required on every /internal/**
+        endpoint, including the four pre-auth ones.
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: >
+        HS256 JWT identifying the end customer, channel, and scope.
+        Required in addition to ServiceCredential on the seven domain
+        endpoints; see each operation's description for its required
+        scope(s).
   parameters:
     CustomerId:
       name: customerId
@@ -207,6 +362,12 @@ components:
         type: string
     AccountId:
       name: accountId
+      in: path
+      required: true
+      schema:
+        type: string
+    DeviceId:
+      name: deviceId
       in: path
       required: true
       schema:
@@ -376,6 +537,44 @@ components:
         newBalance:
           type: number
           format: decimal
+    PinVerificationRequest:
+      type: object
+      required: [cardNumber, pin]
+      properties:
+        cardNumber:
+          type: string
+        pin:
+          type: string
+    PinVerificationResponse:
+      type: object
+      required: [customerId]
+      properties:
+        customerId:
+          type: string
+    RefreshTokenRequest:
+      type: object
+      description: >
+        customerId identifies the token's owner for the web flow; the mobile
+        flow instead binds ownership to the deviceId path segment and may
+        omit it.
+      required: [refreshToken]
+      properties:
+        customerId:
+          type: string
+          nullable: true
+        refreshToken:
+          type: string
+    RefreshTokenResponse:
+      type: object
+      required: [customerId, refreshToken, expiry]
+      properties:
+        customerId:
+          type: string
+        refreshToken:
+          type: string
+        expiry:
+          type: string
+          format: date-time
     ProblemDetail:
       type: object
       description: RFC 7807 problem details

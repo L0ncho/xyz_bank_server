@@ -1,12 +1,17 @@
 package cl.duoc.xyzbank.coreservice.accounts.e2e;
 
 import cl.duoc.xyzbank.coredomain.accounts.domain.entities.Account;
+import cl.duoc.xyzbank.coredomain.accounts.domain.entities.Customer;
 import cl.duoc.xyzbank.coredomain.accounts.domain.repositories.AccountRepository;
+import cl.duoc.xyzbank.coredomain.accounts.domain.repositories.CustomerRepository;
 import cl.duoc.xyzbank.coredomain.accounts.domain.valueobjects.AccountNumber;
 import cl.duoc.xyzbank.coredomain.accounts.domain.valueobjects.Money;
 import cl.duoc.xyzbank.coredomain.shared.domain.Id;
+import cl.duoc.xyzbank.sharedsecurity.callercontext.Channel;
+import cl.duoc.xyzbank.sharedsecurity.callercontext.JwtCallerContextAdapter;
 import cl.duoc.xyzbank.testsupport.AbstractPostgresIT;
 import io.restassured.RestAssured;
+import io.restassured.specification.RequestSpecification;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -36,21 +41,35 @@ class AccountControllerE2ETest extends AbstractPostgresIT {
     @Autowired
     private AccountRepository accountRepository;
 
+    @Autowired
+    private CustomerRepository customerRepository;
+
+    @Autowired
+    private JwtCallerContextAdapter tokenAdapter;
+
     @BeforeEach
     void configureRestAssured() {
         RestAssured.port = port;
+    }
+
+    private RequestSpecification asOwner(Id customerId) {
+        return given()
+                .header("X-Service-Credential", "dev-service-credential-web")
+                .header("Authorization", "Bearer " + tokenAdapter.issue(customerId.getValue(), Channel.WEB, null));
     }
 
     @Test
     @DisplayName("returns the balance of an existing account")
     void returnsTheBalanceOfAnExistingAccount() {
         Id id = Id.generate();
+        Id customerId = Id.generate();
+        customerRepository.save(Customer.create(customerId, "Jane Doe", "jane.doe+" + customerId.getValue() + "@xyzbank.cl"));
         Account account = Account.create(
-                id, AccountNumber.create("1234567890"), Id.generate(),
+                id, AccountNumber.create("1234567890"), customerId,
                 Money.create(new BigDecimal("300.00"), "USD"));
         accountRepository.save(account);
 
-        given()
+        asOwner(customerId)
                 .when().get("/internal/accounts/{accountId}/balance", id.getValue())
                 .then()
                 .statusCode(200)
@@ -62,7 +81,7 @@ class AccountControllerE2ETest extends AbstractPostgresIT {
     @Test
     @DisplayName("returns 404 with a problem+json body for an unknown account")
     void returnsNotFoundForAnUnknownAccount() {
-        given()
+        asOwner(Id.generate())
                 .when().get("/internal/accounts/{accountId}/balance", Id.generate().getValue())
                 .then()
                 .statusCode(404)
@@ -72,7 +91,7 @@ class AccountControllerE2ETest extends AbstractPostgresIT {
     @Test
     @DisplayName("returns 422 with a problem+json body for a malformed account id")
     void returnsUnprocessableEntityForAMalformedAccountId() {
-        given()
+        asOwner(Id.generate())
                 .when().get("/internal/accounts/{accountId}/balance", "   ")
                 .then()
                 .statusCode(422)

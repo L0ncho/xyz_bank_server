@@ -1,5 +1,14 @@
 server:
   port: 8083
+  ssl:
+    enabled: true
+    key-store: ${TLS_KEYSTORE_PATH:classpath:tls/keystore.p12}
+    key-store-password: ${TLS_KEYSTORE_PASSWORD:xyzbank-dev}
+    key-store-type: PKCS12
+    trust-store: ${TLS_TRUSTSTORE_PATH:classpath:tls/truststore.p12}
+    trust-store-password: ${TLS_TRUSTSTORE_PASSWORD:xyzbank-dev}
+    trust-store-type: PKCS12
+    client-auth: need
 
 spring:
   application:
@@ -7,8 +16,14 @@ spring:
 
 core-service:
   base-url: ${CORE_SERVICE_BASE_URL:http://localhost:8080}
+  pin-verification-base-url: ${CORE_SERVICE_PIN_VERIFICATION_BASE_URL:https://localhost:8453}
   connect-timeout-ms: 3000
   read-timeout-ms: 3000
+  service-credential: ${CORE_SERVICE_CREDENTIAL:dev-service-credential-atm}
+
+channel-auth:
+  jwt:
+    secret: ${CHANNEL_AUTH_JWT_SECRET:dev-channel-auth-jwt-signing-secret-please-rotate-in-prod}
 
 management:
   endpoints:

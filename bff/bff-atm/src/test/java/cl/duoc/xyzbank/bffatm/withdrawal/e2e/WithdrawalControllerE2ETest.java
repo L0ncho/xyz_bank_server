@@ -1,12 +1,17 @@
 package cl.duoc.xyzbank.bffatm.withdrawal.e2e;
 
+import cl.duoc.xyzbank.sharedsecurity.callercontext.Channel;
+import cl.duoc.xyzbank.sharedsecurity.callercontext.JwtCallerContextAdapter;
 import com.github.tomakehurst.wiremock.WireMockServer;
 import com.github.tomakehurst.wiremock.client.WireMock;
 import io.restassured.RestAssured;
+import io.restassured.config.SSLConfig;
+import io.restassured.specification.RequestSpecification;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.http.MediaType;
@@ -27,6 +32,8 @@ import static org.hamcrest.Matchers.not;
 @DisplayName("The Withdrawal controller")
 class WithdrawalControllerE2ETest {
 
+    private static final String TERMINAL_ID = "atm-terminal-001";
+
     private static final WireMockServer CORE_SERVICE = new WireMockServer(wireMockConfig().dynamicPort());
 
     static {
@@ -41,15 +48,28 @@ class WithdrawalControllerE2ETest {
     @LocalServerPort
     private int port;
 
+    @Autowired
+    private JwtCallerContextAdapter tokenAdapter;
+
     @BeforeEach
     void configureRestAssured() {
         RestAssured.port = port;
+        RestAssured.baseURI = "https://localhost";
+        RestAssured.config = RestAssured.config()
+                .sslConfig(SSLConfig.sslConfig()
+                        .keyStore("tls/terminal-keystore.p12", "xyzbank-dev")
+                        .and()
+                        .relaxedHTTPSValidation());
         CORE_SERVICE.resetAll();
     }
 
     @AfterAll
     static void stopCoreServiceStub() {
         CORE_SERVICE.stop();
+    }
+
+    private RequestSpecification asAtm() {
+        return given().header("Authorization", "Bearer " + tokenAdapter.issue("customer-1", Channel.ATM, TERMINAL_ID));
     }
 
     @Test
@@ -62,10 +82,7 @@ class WithdrawalControllerE2ETest {
                         .withBody(
                                 "{\"transactionId\":\"tx-1\",\"accountId\":\"account-1\",\"amount\":40.00,\"currency\":\"USD\",\"occurredOn\":\"2026-01-01\",\"newBalance\":210.00}")));
 
-        given()
-                .header("X-Customer-Id", "customer-1")
-                .header("X-Channel", "atm")
-                .header("X-Terminal-Id", "terminal-1")
+        asAtm()
                 .header("Idempotency-Key", "key-1")
                 .contentType(MediaType.APPLICATION_JSON_VALUE)
                 .body("{\"amount\":40.00,\"currency\":\"USD\"}")
@@ -80,10 +97,7 @@ class WithdrawalControllerE2ETest {
     @Test
     @DisplayName("rejects a missing idempotency key")
     void rejectsAMissingIdempotencyKey() {
-        given()
-                .header("X-Customer-Id", "customer-1")
-                .header("X-Channel", "atm")
-                .header("X-Terminal-Id", "terminal-1")
+        asAtm()
                 .contentType(MediaType.APPLICATION_JSON_VALUE)
                 .body("{\"amount\":40.00,\"currency\":\"USD\"}")
                 .when()
@@ -102,10 +116,7 @@ class WithdrawalControllerE2ETest {
                         .withHeader("Content-Type", "application/problem+json")
                         .withBody("{\"detail\":\"Conflict\"}")));
 
-        given()
-                .header("X-Customer-Id", "customer-1")
-                .header("X-Channel", "atm")
-                .header("X-Terminal-Id", "terminal-1")
+        asAtm()
                 .header("Idempotency-Key", "key-1")
                 .contentType(MediaType.APPLICATION_JSON_VALUE)
                 .body("{\"amount\":40.00,\"currency\":\"USD\"}")
@@ -126,10 +137,7 @@ class WithdrawalControllerE2ETest {
                         .withBody(
                                 "{\"transactionId\":\"tx-1\",\"accountId\":\"account-1\",\"amount\":40.00,\"currency\":\"USD\",\"occurredOn\":\"2026-01-01\",\"newBalance\":210.00}")));
 
-        String correlationId = given()
-                .header("X-Customer-Id", "customer-1")
-                .header("X-Channel", "atm")
-                .header("X-Terminal-Id", "terminal-1")
+        String correlationId = asAtm()
                 .header("Idempotency-Key", "key-1")
                 .contentType(MediaType.APPLICATION_JSON_VALUE)
                 .body("{\"amount\":40.00,\"currency\":\"USD\"}")
@@ -143,5 +151,68 @@ class WithdrawalControllerE2ETest {
 
         CORE_SERVICE.verify(postRequestedFor(urlEqualTo("/internal/accounts/account-1/withdrawals"))
                 .withHeader("X-Correlation-Id", WireMock.equalTo(correlationId)));
+    }
+
+    @Test
+    @DisplayName("carries the service credential on every outbound core-service call")
+    void carriesTheServiceCredentialOnEveryOutboundCoreServiceCall() {
+        CORE_SERVICE.stubFor(post(urlEqualTo("/internal/accounts/account-1/withdrawals"))
+                .willReturn(aResponse()
+                        .withStatus(201)
+                        .withHeader("Content-Type", "application/json")
+                        .withBody(
+                                "{\"transactionId\":\"tx-1\",\"accountId\":\"account-1\",\"amount\":40.00,\"currency\":\"USD\",\"occurredOn\":\"2026-01-01\",\"newBalance\":210.00}")));
+
+        asAtm()
+                .header("Idempotency-Key", "key-1")
+                .contentType(MediaType.APPLICATION_JSON_VALUE)
+                .body("{\"amount\":40.00,\"currency\":\"USD\"}")
+                .when()
+                .post("/accounts/{accountId}/withdrawals", "account-1")
+                .then()
+                .statusCode(201);
+
+        CORE_SERVICE.verify(postRequestedFor(urlEqualTo("/internal/accounts/account-1/withdrawals"))
+                .withHeader("X-Service-Credential", WireMock.equalTo("dev-service-credential-atm")));
+    }
+
+    @Test
+    @DisplayName("forwards the caller's session token as a bearer token on every outbound core-service call")
+    void forwardsTheCallersSessionTokenAsABearerTokenOnEveryOutboundCoreServiceCall() {
+        CORE_SERVICE.stubFor(post(urlEqualTo("/internal/accounts/account-1/withdrawals"))
+                .willReturn(aResponse()
+                        .withStatus(201)
+                        .withHeader("Content-Type", "application/json")
+                        .withBody(
+                                "{\"transactionId\":\"tx-1\",\"accountId\":\"account-1\",\"amount\":40.00,\"currency\":\"USD\",\"occurredOn\":\"2026-01-01\",\"newBalance\":210.00}")));
+        String token = tokenAdapter.issue("customer-1", Channel.ATM, TERMINAL_ID);
+
+        given()
+                .header("Authorization", "Bearer " + token)
+                .header("Idempotency-Key", "key-1")
+                .contentType(MediaType.APPLICATION_JSON_VALUE)
+                .body("{\"amount\":40.00,\"currency\":\"USD\"}")
+                .when()
+                .post("/accounts/{accountId}/withdrawals", "account-1")
+                .then()
+                .statusCode(201);
+
+        CORE_SERVICE.verify(postRequestedFor(urlEqualTo("/internal/accounts/account-1/withdrawals"))
+                .withHeader("Authorization", WireMock.equalTo("Bearer " + token)));
+    }
+
+    @Test
+    @DisplayName("rejects a session bound to a different terminal than the one presenting it")
+    void rejectsASessionBoundToADifferentTerminal() {
+        given()
+                .header("Authorization", "Bearer " + tokenAdapter.issue("customer-1", Channel.ATM, "some-other-terminal"))
+                .header("Idempotency-Key", "key-1")
+                .contentType(MediaType.APPLICATION_JSON_VALUE)
+                .body("{\"amount\":40.00,\"currency\":\"USD\"}")
+                .when()
+                .post("/accounts/{accountId}/withdrawals", "account-1")
+                .then()
+                .statusCode(422)
+                .contentType("application/problem+json");
     }
 }

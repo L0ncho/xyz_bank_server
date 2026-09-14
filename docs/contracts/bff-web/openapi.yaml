@@ -4,19 +4,52 @@ info:
   description: >
     Web channel backend-for-frontend. Aggregates core-service data into full
     payloads for the dashboard, filterable transaction history, and annual
-    interest view. Does not access any database.
+    interest view. Does not access any database. The browser authenticates
+    via an httpOnly `session` cookie (a short-lived JWT) obtained through an
+    OIDC login redirect and renewed via /session/refresh; unsafe methods also
+    require the double-submit `X-XSRF-TOKEN` header/`XSRF-TOKEN` cookie pair.
   version: "1.0.0"
 servers:
-  - url: http://localhost:8081
+  - url: https://localhost:8081
+security:
+  - SessionCookie: []
 paths:
+  /oauth2/authorization/oidc:
+    get:
+      summary: Start the OIDC login redirect
+      description: >
+        Browser-redirect flow, not a JSON API: redirects to the identity
+        provider's authorization endpoint (PKCE-enabled). On successful
+        login, the provider redirects back to
+        /login/oauth2/code/oidc, which this service handles internally by
+        minting the session/refresh_token/XSRF-TOKEN cookies and redirecting
+        the browser to the SPA. Neither leg returns a JSON body.
+      operationId: startOidcLogin
+      security: []
+      responses:
+        '302':
+          description: Redirect to the identity provider
+  /session/refresh:
+    post:
+      summary: Rotate the session using the refresh_token cookie
+      description: >
+        Reachable without a valid session cookie -- that is the point of a
+        refresh endpoint -- but requires the httpOnly refresh_token cookie.
+        On success, rotates session/refresh_token/XSRF-TOKEN cookies. On
+        failure, clears all session cookies.
+      operationId: refreshSession
+      security: []
+      responses:
+        '204':
+          description: Session rotated; new cookies set on the response
+        '401':
+          description: Missing, invalid, or already-rotated refresh token; cookies cleared
   /customers/{customerId}/dashboard:
     get:
       summary: Dashboard aggregate
       operationId: getDashboard
       parameters:
         - $ref: '#/components/parameters/CustomerId'
-        - $ref: '#/components/parameters/XCustomerId'
-        - $ref: '#/components/parameters/XChannel'
       responses:
         '200':
           description: Profile, every account with balance, and latest transactions per account
@@ -36,8 +69,6 @@ paths:
       operationId: getTransactionHistory
       parameters:
         - $ref: '#/components/parameters/AccountId'
-        - $ref: '#/components/parameters/XCustomerId'
-        - $ref: '#/components/parameters/XChannel'
         - name: from
           in: query
           schema:
@@ -80,8 +111,6 @@ paths:
       operationId: getInterestView
       parameters:
         - $ref: '#/components/parameters/AccountId'
-        - $ref: '#/components/parameters/XCustomerId'
-        - $ref: '#/components/parameters/XChannel'
         - name: year
           in: query
           required: true
@@ -101,6 +130,14 @@ paths:
         '422':
           $ref: '#/components/responses/UnprocessableEntity'
 components:
+  securitySchemes:
+    SessionCookie:
+      type: apiKey
+      in: cookie
+      name: session
+      description: >
+        Short-lived HS256 JWT set as an httpOnly, Secure, SameSite=Lax
+        cookie after a successful OIDC login or /session/refresh call.
   parameters:
     CustomerId:
       name: customerId
@@ -114,19 +151,6 @@ components:
       required: true
       schema:
         type: string
-    XCustomerId:
-      name: X-Customer-Id
-      in: header
-      required: true
-      schema:
-        type: string
-    XChannel:
-      name: X-Channel
-      in: header
-      required: true
-      schema:
-        type: string
-        enum: [web]
   responses:
     Forbidden:
       description: Caller channel is not web
@@ -141,7 +165,7 @@ components:
           schema:
             $ref: '#/components/schemas/ProblemDetail'
     UnprocessableEntity:
-      description: Missing or invalid caller identity or request filter
+      description: Missing or invalid session cookie, or an invalid request filter
       content:
         application/problem+json:
           schema:

@@ -1,12 +1,16 @@
 package cl.duoc.xyzbank.bffmobile.accountsummary.e2e;
 
+import cl.duoc.xyzbank.sharedsecurity.callercontext.Channel;
+import cl.duoc.xyzbank.sharedsecurity.callercontext.JwtCallerContextAdapter;
 import com.github.tomakehurst.wiremock.WireMockServer;
 import com.github.tomakehurst.wiremock.client.WireMock;
 import io.restassured.RestAssured;
+import io.restassured.specification.RequestSpecification;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -42,9 +46,14 @@ class AccountSummaryControllerE2ETest {
     @LocalServerPort
     private int port;
 
+    @Autowired
+    private JwtCallerContextAdapter tokenAdapter;
+
     @BeforeEach
     void configureRestAssured() {
         RestAssured.port = port;
+        RestAssured.baseURI = "https://localhost";
+        RestAssured.useRelaxedHTTPSValidation();
         CORE_SERVICE.resetAll();
         stubSummary();
     }
@@ -54,12 +63,16 @@ class AccountSummaryControllerE2ETest {
         CORE_SERVICE.stop();
     }
 
+    private RequestSpecification asDevice(String deviceId) {
+        return given()
+                .header("Authorization", "Bearer " + tokenAdapter.issue("customer-1", Channel.MOBILE, deviceId))
+                .header("X-Device-Id", deviceId);
+    }
+
     @Test
     @DisplayName("returns a flattened account summary")
     void returnsAFlattenedAccountSummary() {
-        given()
-                .header("X-Customer-Id", "customer-1")
-                .header("X-Channel", "mobile")
+        asDevice("device-1")
                 .when()
                 .get("/accounts/{accountId}/summary", "account-1")
                 .then()
@@ -82,9 +95,7 @@ class AccountSummaryControllerE2ETest {
                         .withHeader("Content-Type", "application/problem+json")
                         .withBody("{\"detail\":\"Account unknown not found\"}")));
 
-        given()
-                .header("X-Customer-Id", "customer-1")
-                .header("X-Channel", "mobile")
+        asDevice("device-1")
                 .when()
                 .get("/accounts/{accountId}/summary", "unknown")
                 .then()
@@ -96,8 +107,8 @@ class AccountSummaryControllerE2ETest {
     @DisplayName("rejects a caller whose channel is not mobile")
     void rejectsACallerWhoseChannelIsNotMobile() {
         given()
-                .header("X-Customer-Id", "customer-1")
-                .header("X-Channel", "web")
+                .header("Authorization", "Bearer " + tokenAdapter.issue("customer-1", Channel.WEB, null))
+                .header("X-Device-Id", "device-1")
                 .when()
                 .get("/accounts/{accountId}/summary", "account-1")
                 .then()
@@ -106,11 +117,22 @@ class AccountSummaryControllerE2ETest {
     }
 
     @Test
+    @DisplayName("rejects a token presented with a mismatched device id")
+    void rejectsATokenPresentedWithAMismatchedDeviceId() {
+        given()
+                .header("Authorization", "Bearer " + tokenAdapter.issue("customer-1", Channel.MOBILE, "device-1"))
+                .header("X-Device-Id", "device-2")
+                .when()
+                .get("/accounts/{accountId}/summary", "account-1")
+                .then()
+                .statusCode(422)
+                .contentType("application/problem+json");
+    }
+
+    @Test
     @DisplayName("ignores filter and pagination query parameters")
     void ignoresFilterAndPaginationQueryParameters() {
-        given()
-                .header("X-Customer-Id", "customer-1")
-                .header("X-Channel", "mobile")
+        asDevice("device-1")
                 .queryParam("from", "2020-01-01")
                 .queryParam("to", "2026-12-31")
                 .queryParam("type", "CREDIT")
@@ -127,9 +149,7 @@ class AccountSummaryControllerE2ETest {
     @Test
     @DisplayName("propagates the correlation id to core-service")
     void propagatesTheCorrelationIdToCoreService() {
-        given()
-                .header("X-Customer-Id", "customer-1")
-                .header("X-Channel", "mobile")
+        asDevice("device-1")
                 .header("X-Correlation-Id", "corr-mobile-1")
                 .when()
                 .get("/accounts/{accountId}/summary", "account-1")
@@ -146,9 +166,7 @@ class AccountSummaryControllerE2ETest {
     @Test
     @DisplayName("propagates a generated correlation id when the inbound header is absent")
     void propagatesAGeneratedCorrelationIdWhenTheInboundHeaderIsAbsent() {
-        String correlationId = given()
-                .header("X-Customer-Id", "customer-1")
-                .header("X-Channel", "mobile")
+        String correlationId = asDevice("device-1")
                 .when()
                 .get("/accounts/{accountId}/summary", "account-1")
                 .then()
@@ -161,6 +179,40 @@ class AccountSummaryControllerE2ETest {
                 .withHeader("X-Correlation-Id", WireMock.equalTo(correlationId)));
         CORE_SERVICE.verify(getRequestedFor(urlEqualTo("/internal/accounts/account-1/transactions?pageSize=5"))
                 .withHeader("X-Correlation-Id", WireMock.equalTo(correlationId)));
+    }
+
+    @Test
+    @DisplayName("carries the service credential on every outbound core-service call")
+    void carriesTheServiceCredentialOnEveryOutboundCoreServiceCall() {
+        asDevice("device-1")
+                .when()
+                .get("/accounts/{accountId}/summary", "account-1")
+                .then()
+                .statusCode(200);
+
+        CORE_SERVICE.verify(getRequestedFor(urlEqualTo("/internal/accounts/account-1/balance"))
+                .withHeader("X-Service-Credential", WireMock.equalTo("dev-service-credential-mobile")));
+        CORE_SERVICE.verify(getRequestedFor(urlEqualTo("/internal/accounts/account-1/transactions?pageSize=5"))
+                .withHeader("X-Service-Credential", WireMock.equalTo("dev-service-credential-mobile")));
+    }
+
+    @Test
+    @DisplayName("forwards the caller's session token as a bearer token on every outbound core-service call")
+    void forwardsTheCallersSessionTokenAsABearerTokenOnEveryOutboundCoreServiceCall() {
+        String token = tokenAdapter.issue("customer-1", Channel.MOBILE, "device-1");
+
+        given()
+                .header("Authorization", "Bearer " + token)
+                .header("X-Device-Id", "device-1")
+                .when()
+                .get("/accounts/{accountId}/summary", "account-1")
+                .then()
+                .statusCode(200);
+
+        CORE_SERVICE.verify(getRequestedFor(urlEqualTo("/internal/accounts/account-1/balance"))
+                .withHeader("Authorization", WireMock.equalTo("Bearer " + token)));
+        CORE_SERVICE.verify(getRequestedFor(urlEqualTo("/internal/accounts/account-1/transactions?pageSize=5"))
+                .withHeader("Authorization", WireMock.equalTo("Bearer " + token)));
     }
 
     private static void stubSummary() {

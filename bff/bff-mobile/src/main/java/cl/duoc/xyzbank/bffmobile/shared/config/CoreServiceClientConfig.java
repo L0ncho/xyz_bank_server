@@ -1,5 +1,6 @@
 package cl.duoc.xyzbank.bffmobile.shared.config;
 
+import cl.duoc.xyzbank.bffmobile.shared.infrastructure.rest.BearerTokenClientInterceptor;
 import cl.duoc.xyzbank.bffmobile.shared.infrastructure.rest.CorrelationIdClientInterceptor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
@@ -15,14 +16,18 @@ public class CoreServiceClientConfig {
             @Value("${core-service.base-url}") String baseUrl,
             @Value("${core-service.connect-timeout-ms}") int connectTimeoutMs,
             @Value("${core-service.read-timeout-ms}") int readTimeoutMs,
-            CorrelationIdClientInterceptor correlationIdClientInterceptor) {
+            @Value("${core-service.service-credential}") String serviceCredential,
+            CorrelationIdClientInterceptor correlationIdClientInterceptor,
+            BearerTokenClientInterceptor bearerTokenClientInterceptor) {
         SimpleClientHttpRequestFactory requestFactory = new SimpleClientHttpRequestFactory();
         requestFactory.setConnectTimeout(connectTimeoutMs);
         requestFactory.setReadTimeout(readTimeoutMs);
         return RestClient.builder()
                 .baseUrl(baseUrl)
                 .requestFactory(requestFactory)
+                .defaultHeader("X-Service-Credential", serviceCredential)
                 .requestInterceptor(correlationIdClientInterceptor)
+                .requestInterceptor(bearerTokenClientInterceptor)
                 .build();
     }
 }

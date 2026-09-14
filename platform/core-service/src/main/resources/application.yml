@@ -19,6 +19,23 @@ app:
   withdrawals:
     daily-limit: 5000.00
 
+security:
+  pin-verification-tls:
+    port: 8453
+    keystore-path: ${TLS_PIN_KEYSTORE_PATH:classpath:tls/keystore.p12}
+    keystore-password: ${TLS_PIN_KEYSTORE_PASSWORD:xyzbank-dev}
+    keystore-type: PKCS12
+  enforcement:
+    enabled: true
+  service-credentials:
+    web: ${SERVICE_CREDENTIAL_WEB:dev-service-credential-web}
+    mobile: ${SERVICE_CREDENTIAL_MOBILE:dev-service-credential-mobile}
+    atm: ${SERVICE_CREDENTIAL_ATM:dev-service-credential-atm}
+
+channel-auth:
+  jwt:
+    secret: ${CHANNEL_AUTH_JWT_SECRET:dev-channel-auth-jwt-signing-secret-please-rotate-in-prod}
+
 management:
   endpoints:
     web:

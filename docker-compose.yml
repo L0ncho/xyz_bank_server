@@ -58,6 +58,9 @@ services:
     container_name: xyz-bank-core-service
     ports:
       - "8080:8080"
+      - "8453:8453"
+    volumes:
+      - ./dev/certs/core-service/keystore.p12:/certs/keystore.p12:ro
     depends_on:
       postgres:
         condition: service_healthy
@@ -69,6 +72,11 @@ services:
       DB_NAME: core_service
       DB_USERNAME: core_service
       DB_PASSWORD: core_service
+      TLS_PIN_KEYSTORE_PATH: file:/certs/keystore.p12
+      TLS_PIN_KEYSTORE_PASSWORD: xyzbank-dev
+      SERVICE_CREDENTIAL_WEB: dev-service-credential-web
+      SERVICE_CREDENTIAL_MOBILE: dev-service-credential-mobile
+      SERVICE_CREDENTIAL_ATM: dev-service-credential-atm
     healthcheck:
       test: ["CMD", "sh", "-c", "wget -qO- http://127.0.0.1:8080/actuator/health | grep -q UP"]
       interval: 10s
@@ -83,13 +91,18 @@ services:
     container_name: xyz-bank-bff-web
     ports:
       - "8081:8081"
+    volumes:
+      - ./dev/certs/bff-web/keystore.p12:/certs/keystore.p12:ro
     depends_on:
       core-service:
         condition: service_healthy
     environment:
       CORE_SERVICE_BASE_URL: http://core-service:8080
+      CORE_SERVICE_CREDENTIAL: dev-service-credential-web
+      TLS_KEYSTORE_PATH: file:/certs/keystore.p12
+      TLS_KEYSTORE_PASSWORD: xyzbank-dev
     healthcheck:
-      test: ["CMD", "sh", "-c", "wget -qO- http://127.0.0.1:8081/actuator/health | grep -q UP"]
+      test: ["CMD", "sh", "-c", "wget --no-check-certificate -qO- https://127.0.0.1:8081/actuator/health | grep -q UP"]
       interval: 10s
       timeout: 5s
       retries: 20
@@ -102,13 +115,18 @@ services:
     container_name: xyz-bank-bff-mobile
     ports:
       - "8082:8082"
+    volumes:
+      - ./dev/certs/bff-mobile/keystore.p12:/certs/keystore.p12:ro
     depends_on:
       core-service:
         condition: service_healthy
     environment:
       CORE_SERVICE_BASE_URL: http://core-service:8080
+      CORE_SERVICE_CREDENTIAL: dev-service-credential-mobile
+      TLS_KEYSTORE_PATH: file:/certs/keystore.p12
+      TLS_KEYSTORE_PASSWORD: xyzbank-dev
     healthcheck:
-      test: ["CMD", "sh", "-c", "wget -qO- http://127.0.0.1:8082/actuator/health | grep -q UP"]
+      test: ["CMD", "sh", "-c", "wget --no-check-certificate -qO- https://127.0.0.1:8082/actuator/health | grep -q UP"]
       interval: 10s
       timeout: 5s
       retries: 20
@@ -121,13 +139,26 @@ services:
     container_name: xyz-bank-bff-atm
     ports:
       - "8083:8083"
+    volumes:
+      - ./dev/certs/bff-atm/keystore.p12:/certs/keystore.p12:ro
+      - ./dev/certs/truststore.p12:/certs/truststore.p12:ro
+      - ./dev/certs/atm-terminal/keystore.p12:/certs/terminal-keystore.p12:ro
     depends_on:
       core-service:
         condition: service_healthy
     environment:
       CORE_SERVICE_BASE_URL: http://core-service:8080
+      CORE_SERVICE_PIN_VERIFICATION_BASE_URL: https://core-service:8453
+      CORE_SERVICE_CREDENTIAL: dev-service-credential-atm
+      TLS_KEYSTORE_PATH: file:/certs/keystore.p12
+      TLS_KEYSTORE_PASSWORD: xyzbank-dev
+      TLS_TRUSTSTORE_PATH: file:/certs/truststore.p12
+      TLS_TRUSTSTORE_PASSWORD: xyzbank-dev
     healthcheck:
-      test: ["CMD", "sh", "-c", "wget -qO- http://127.0.0.1:8083/actuator/health | grep -q UP"]
+      # bff-atm's connector requires a client certificate (client-auth: need), so even
+      # the health check must present one: it uses the same dev terminal certificate a
+      # real ATM terminal would, via curl (busybox wget cannot present a client cert)
+      test: ["CMD", "sh", "-c", "curl -sk --cert-type P12 --cert /certs/terminal-keystore.p12:xyzbank-dev https://127.0.0.1:8083/actuator/health | grep -q UP"]
       interval: 10s
       timeout: 5s
       retries: 20

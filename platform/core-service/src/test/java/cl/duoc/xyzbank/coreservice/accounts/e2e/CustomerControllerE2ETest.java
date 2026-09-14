@@ -7,8 +7,11 @@ import cl.duoc.xyzbank.coredomain.accounts.domain.repositories.CustomerRepositor
 import cl.duoc.xyzbank.coredomain.accounts.domain.valueobjects.AccountNumber;
 import cl.duoc.xyzbank.coredomain.accounts.domain.valueobjects.Money;
 import cl.duoc.xyzbank.coredomain.shared.domain.Id;
+import cl.duoc.xyzbank.sharedsecurity.callercontext.Channel;
+import cl.duoc.xyzbank.sharedsecurity.callercontext.JwtCallerContextAdapter;
 import cl.duoc.xyzbank.testsupport.AbstractPostgresIT;
 import io.restassured.RestAssured;
+import io.restassured.specification.RequestSpecification;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -46,9 +49,18 @@ class CustomerControllerE2ETest extends AbstractPostgresIT {
     @Autowired
     private AccountRepository accountRepository;
 
+    @Autowired
+    private JwtCallerContextAdapter tokenAdapter;
+
     @BeforeEach
     void configureRestAssured() {
         RestAssured.port = port;
+    }
+
+    private RequestSpecification asOwner(Id customerId) {
+        return given()
+                .header("X-Service-Credential", "dev-service-credential-web")
+                .header("Authorization", "Bearer " + tokenAdapter.issue(customerId.getValue(), Channel.WEB, null));
     }
 
     @Test
@@ -57,7 +69,7 @@ class CustomerControllerE2ETest extends AbstractPostgresIT {
         Id id = Id.generate();
         customerRepository.save(Customer.create(id, "Jane Doe", "jane.doe@xyzbank.cl"));
 
-        given()
+        asOwner(id)
                 .when().get("/internal/customers/{customerId}", id.getValue())
                 .then()
                 .statusCode(200)
@@ -69,8 +81,9 @@ class CustomerControllerE2ETest extends AbstractPostgresIT {
     @Test
     @DisplayName("returns 404 with a problem+json body for an unknown customer")
     void returnsNotFoundForAnUnknownCustomer() {
-        given()
-                .when().get("/internal/customers/{customerId}", Id.generate().getValue())
+        Id id = Id.generate();
+        asOwner(id)
+                .when().get("/internal/customers/{customerId}", id.getValue())
                 .then()
                 .statusCode(404)
                 .contentType("application/problem+json");
@@ -79,7 +92,7 @@ class CustomerControllerE2ETest extends AbstractPostgresIT {
     @Test
     @DisplayName("returns 422 with a problem+json body for a malformed customer id")
     void returnsUnprocessableEntityForAMalformedCustomerId() {
-        given()
+        asOwner(Id.generate())
                 .when().get("/internal/customers/{customerId}", "   ")
                 .then()
                 .statusCode(422)
@@ -94,7 +107,7 @@ class CustomerControllerE2ETest extends AbstractPostgresIT {
         accountRepository.save(anAccountFor(customerId, "1111111111"));
         accountRepository.save(anAccountFor(customerId, "2222222222"));
 
-        given()
+        asOwner(customerId)
                 .when().get("/internal/customers/{customerId}/accounts", customerId.getValue())
                 .then()
                 .statusCode(200)
@@ -107,7 +120,7 @@ class CustomerControllerE2ETest extends AbstractPostgresIT {
         Id customerId = Id.generate();
         customerRepository.save(Customer.create(customerId, "Jane Doe", "jane.doe@xyzbank.cl"));
 
-        given()
+        asOwner(customerId)
                 .when().get("/internal/customers/{customerId}/accounts", customerId.getValue())
                 .then()
                 .statusCode(200)
@@ -117,8 +130,9 @@ class CustomerControllerE2ETest extends AbstractPostgresIT {
     @Test
     @DisplayName("returns 404 for the accounts of an unknown customer")
     void returnsNotFoundForTheAccountsOfAnUnknownCustomer() {
-        given()
-                .when().get("/internal/customers/{customerId}/accounts", Id.generate().getValue())
+        Id customerId = Id.generate();
+        asOwner(customerId)
+                .when().get("/internal/customers/{customerId}/accounts", customerId.getValue())
                 .then()
                 .statusCode(404)
                 .contentType("application/problem+json");

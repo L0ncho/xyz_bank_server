@@ -1,11 +1,14 @@
 package cl.duoc.xyzbank.bffweb.interestview.e2e;
 
+import cl.duoc.xyzbank.sharedsecurity.callercontext.Channel;
+import cl.duoc.xyzbank.sharedsecurity.callercontext.JwtCallerContextAdapter;
 import com.github.tomakehurst.wiremock.WireMockServer;
 import io.restassured.RestAssured;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -42,10 +45,19 @@ class InterestViewControllerE2ETest {
     @LocalServerPort
     private int port;
 
+    @Autowired
+    private JwtCallerContextAdapter tokenAdapter;
+
     @BeforeEach
     void configureRestAssured() {
         RestAssured.port = port;
+        RestAssured.baseURI = "https://localhost";
+        RestAssured.useRelaxedHTTPSValidation();
         CORE_SERVICE.resetAll();
+    }
+
+    private String sessionCookie() {
+        return tokenAdapter.issue("customer-1", Channel.WEB, null);
     }
 
     @AfterAll
@@ -64,8 +76,7 @@ class InterestViewControllerE2ETest {
                                 "{\"accountId\":\"account-1\",\"year\":2026,\"openingBalance\":1000.00,\"closingBalance\":1100.00,\"interestRate\":0.05,\"interestAmount\":50.00,\"currency\":\"USD\"}")));
 
         given()
-                .header("X-Customer-Id", "customer-1")
-                .header("X-Channel", "web")
+                .cookie("session", sessionCookie())
                 .queryParam("year", "2026")
                 .when()
                 .get("/accounts/{accountId}/interest-summary", "account-1")
@@ -81,8 +92,7 @@ class InterestViewControllerE2ETest {
     @DisplayName("rejects a missing year query parameter")
     void rejectsAMissingYearQueryParameter() {
         given()
-                .header("X-Customer-Id", "customer-1")
-                .header("X-Channel", "web")
+                .cookie("session", sessionCookie())
                 .when()
                 .get("/accounts/{accountId}/interest-summary", "account-1")
                 .then()

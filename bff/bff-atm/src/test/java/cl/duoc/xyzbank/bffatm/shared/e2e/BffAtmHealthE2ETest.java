@@ -1,6 +1,7 @@
 package cl.duoc.xyzbank.bffatm.shared.e2e;
 
 import io.restassured.RestAssured;
+import io.restassured.config.SSLConfig;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -27,6 +28,12 @@ class BffAtmHealthE2ETest {
     @BeforeEach
     void configureRestAssured() {
         RestAssured.port = port;
+        RestAssured.baseURI = "https://localhost";
+        RestAssured.config = RestAssured.config()
+                .sslConfig(SSLConfig.sslConfig()
+                        .keyStore("tls/terminal-keystore.p12", "xyzbank-dev")
+                        .and()
+                        .relaxedHTTPSValidation());
     }
 
     @Test
