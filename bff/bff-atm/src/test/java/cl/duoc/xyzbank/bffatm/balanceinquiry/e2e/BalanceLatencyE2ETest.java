@@ -37,9 +37,6 @@ class BalanceLatencyE2ETest {
      *    concurrency proof)
      */
 
-    private static final String TERMINAL_ID = "atm-terminal-001";
-    private static final Duration LATENCY_CEILING = Duration.ofSeconds(2);
-
     private static final WireMockServer CORE_SERVICE = new WireMockServer(wireMockConfig().dynamicPort());
 
     static {
@@ -77,12 +74,14 @@ class BalanceLatencyE2ETest {
     @Test
     @DisplayName("responds within a generous latency ceiling")
     void respondsWithinAGenerousLatencyCeiling() {
+        String terminalId = "atm-terminal-001";
+        Duration latencyCeiling = Duration.ofSeconds(2);
         CORE_SERVICE.stubFor(get(urlEqualTo("/internal/accounts/account-1/balance"))
                 .willReturn(aResponse()
                         .withStatus(200)
                         .withHeader("Content-Type", "application/json")
                         .withBody("{\"accountId\":\"account-1\",\"balance\":250.00,\"currency\":\"USD\"}")));
-        String sessionToken = tokenAdapter.issue("customer-1", Channel.ATM, TERMINAL_ID);
+        String sessionToken = tokenAdapter.issue("customer-1", Channel.ATM, terminalId);
 
         Instant start = Instant.now();
         given()
@@ -94,7 +93,7 @@ class BalanceLatencyE2ETest {
         Duration elapsed = Duration.between(start, Instant.now());
 
         assertTrue(
-                elapsed.compareTo(LATENCY_CEILING) < 0,
-                () -> "expected balance inquiry to respond within " + LATENCY_CEILING + " but took " + elapsed);
+                elapsed.compareTo(latencyCeiling) < 0,
+                () -> "expected balance inquiry to respond within " + latencyCeiling + " but took " + elapsed);
     }
 }

@@ -33,10 +33,6 @@ class DashboardCompressionE2ETest {
      *    when the client advertises Accept-Encoding: gzip
      */
 
-    // Boot's default server.compression.min-response-size is 2KB; this many accounts with a
-    // non-null description each comfortably clears it.
-    private static final int ACCOUNT_COUNT = 20;
-
     private static final WireMockServer CORE_SERVICE = new WireMockServer(wireMockConfig().dynamicPort());
 
     static {
@@ -69,13 +65,16 @@ class DashboardCompressionE2ETest {
     }
 
     private void stubCustomerWithManyAccounts() {
+        // Boot's default server.compression.min-response-size is 2KB; this many accounts with a
+        // non-null description each comfortably clears it.
+        int accountCount = 20;
         CORE_SERVICE.stubFor(get(urlEqualTo("/internal/customers/customer-1"))
                 .willReturn(aResponse()
                         .withStatus(200)
                         .withHeader("Content-Type", "application/json")
                         .withBody("{\"id\":\"customer-1\",\"fullName\":\"Ana Perez\",\"email\":\"ana@example.com\"}")));
 
-        String accountsJson = IntStream.range(0, ACCOUNT_COUNT)
+        String accountsJson = IntStream.range(0, accountCount)
                 .mapToObj(i -> "{\"id\":\"account-" + i + "\",\"accountNumber\":\"100000000" + i
                         + "\",\"balance\":500.00,\"currency\":\"USD\"}")
                 .reduce((a, b) -> a + "," + b)
@@ -87,7 +86,7 @@ class DashboardCompressionE2ETest {
                         .withHeader("Content-Type", "application/json")
                         .withBody(accountsJson)));
 
-        IntStream.range(0, ACCOUNT_COUNT).forEach(i -> CORE_SERVICE.stubFor(
+        IntStream.range(0, accountCount).forEach(i -> CORE_SERVICE.stubFor(
                 get(urlEqualTo("/internal/accounts/account-" + i + "/transactions?pageSize=5"))
                         .willReturn(aResponse()
                                 .withStatus(200)
