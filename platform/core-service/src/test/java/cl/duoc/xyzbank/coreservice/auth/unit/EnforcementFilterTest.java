@@ -9,6 +9,7 @@ import cl.duoc.xyzbank.coredomain.transactions.domain.entities.Transaction;
 import cl.duoc.xyzbank.coredomain.transactions.domain.valueobjects.TransactionType;
 import cl.duoc.xyzbank.coredomain.transactions.unit.InMemoryTransactionRepository;
 import cl.duoc.xyzbank.coreservice.auth.infrastructure.rest.EnforcementFilter;
+import cl.duoc.xyzbank.coreservice.auth.infrastructure.rest.IssuerAccessTokenAuthenticator;
 import cl.duoc.xyzbank.sharedsecurity.callercontext.Channel;
 import cl.duoc.xyzbank.sharedsecurity.callercontext.JwtCallerContextAdapter;
 import jakarta.servlet.FilterChain;
@@ -73,7 +74,9 @@ class EnforcementFilterTest {
     }
 
     private EnforcementFilter filter(boolean enabled) {
-        return new EnforcementFilter(enabled, CREDENTIALS, tokenAdapter, accountRepository, transactionRepository);
+        return new EnforcementFilter(
+                enabled, CREDENTIALS, tokenAdapter, accountRepository, transactionRepository,
+                token -> IssuerAccessTokenAuthenticator.Decision.NOT_AN_ISSUER_TOKEN);
     }
 
     @Test

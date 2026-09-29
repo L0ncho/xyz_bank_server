@@ -86,6 +86,20 @@ services:
       retries: 20
       start_period: 40s
 
+  authorization-server:
+    build:
+      context: .
+      dockerfile: platform/authorization-server/Dockerfile
+    container_name: xyz-bank-authorization-server
+    ports:
+      - "9000:9000"
+    healthcheck:
+      test: ["CMD", "sh", "-c", "wget -qO- http://127.0.0.1:9000/oauth2/jwks | grep -q keys"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+
   core-service:
     build:
       context: .
@@ -102,6 +116,8 @@ services:
       data-migration:
         condition: service_completed_successfully
       eureka-server:
+        condition: service_healthy
+      authorization-server:
         condition: service_healthy
       kafka:
         condition: service_healthy
@@ -124,6 +140,7 @@ services:
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       FEATURE_INTEREST_CREDIT_VIA_KAFKA: ${FEATURE_INTEREST_CREDIT_VIA_KAFKA:-false}
       FEATURE_TRANSACTION_CONFIRMED_EVENTS: ${FEATURE_TRANSACTION_CONFIRMED_EVENTS:-true}
+      ISSUER_JWK_SET_URI: http://authorization-server:9000/oauth2/jwks
     healthcheck:
       test: ["CMD", "sh", "-c", "wget -qO- http://127.0.0.1:8080/actuator/health | grep -q UP"]
       interval: 10s
@@ -215,8 +232,13 @@ services:
         condition: service_healthy
       interests-service:
         condition: service_healthy
+      authorization-server:
+        condition: service_healthy
     environment:
       CORE_SERVICE_BASE_URL: http://core-service:8080
+      OIDC_AUTHORIZATION_URI: http://localhost:9000/oauth2/authorize
+      OIDC_TOKEN_URI: http://authorization-server:9000/oauth2/token
+      OIDC_JWK_SET_URI: http://authorization-server:9000/oauth2/jwks
       CORE_SERVICE_CREDENTIAL: dev-service-credential-web
       INTERESTS_SERVICE_BASE_URL: http://interests-service:8084
       FEATURE_USE_INTERESTS_SERVICE: ${FEATURE_USE_INTERESTS_SERVICE:-true}

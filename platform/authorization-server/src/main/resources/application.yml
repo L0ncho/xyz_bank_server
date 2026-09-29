@@ -1,0 +1,36 @@
+server:
+  port: 9000
+
+spring:
+  application:
+    name: authorization-server
+
+authorization-server:
+  issuer: http://localhost:9000
+  user:
+    name: demo
+    password: demo
+  clients:
+    - client-id: xyz-bank-web-dev
+      client-secret: xyz-bank-web-dev-secret
+      authentication-method: client_secret_basic
+      grant-types:
+        - client_credentials
+        - authorization_code
+      redirect-uris:
+        - https://localhost:8081/login/oauth2/code/oidc
+      scopes:
+        - openid
+        - profile
+        - email
+      require-proof-key: true
+    - client-id: xyz-bank-mobile-dev
+      authentication-method: none
+      grant-types:
+        - authorization_code
+      redirect-uris:
+        - https://localhost:8082/login/oauth2/code/oidc
+      scopes:
+        - openid
+        - profile
+      require-proof-key: true
