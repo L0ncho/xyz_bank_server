@@ -4,6 +4,8 @@ import cl.duoc.xyzbank.bffweb.shared.infrastructure.adapters.CoreServiceCalls;
 import cl.duoc.xyzbank.bffweb.transactionhistory.application.dto.TransactionHistoryResponse;
 import cl.duoc.xyzbank.bffweb.transactionhistory.application.dto.TransactionHistoryResponse.TransactionItem;
 import cl.duoc.xyzbank.bffweb.transactionhistory.application.ports.TransactionsPort;
+import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
+import io.github.resilience4j.retry.annotation.Retry;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.util.UriBuilder;
@@ -23,6 +25,8 @@ public class HttpTransactionsAdapter implements TransactionsPort {
     }
 
     @Override
+    @CircuitBreaker(name = "coreServiceWeb")
+    @Retry(name = "coreServiceWeb")
     public TransactionHistoryResponse fetchHistory(
             String accountId, String from, String to, String type, String cursor, Integer pageSize) {
         TransactionPageWire page = CoreServiceCalls.fetch(() -> coreServiceClient.get()

@@ -23,9 +23,9 @@ spring:
             scope: openid,profile,email
         provider:
           oidc:
-            authorization-uri: ${OIDC_AUTHORIZATION_URI:http://localhost:9999/mock-oidc/authorize}
-            token-uri: ${OIDC_TOKEN_URI:http://localhost:9999/mock-oidc/token}
-            jwk-set-uri: ${OIDC_JWK_SET_URI:http://localhost:9999/mock-oidc/jwks}
+            authorization-uri: ${OIDC_AUTHORIZATION_URI:http://localhost:9000/oauth2/authorize}
+            token-uri: ${OIDC_TOKEN_URI:http://localhost:9000/oauth2/token}
+            jwk-set-uri: ${OIDC_JWK_SET_URI:http://localhost:9000/oauth2/jwks}
             user-name-attribute: sub
 
 core-service:
@@ -46,6 +46,21 @@ features:
 channel-auth:
   jwt:
     secret: ${CHANNEL_AUTH_JWT_SECRET:dev-channel-auth-jwt-signing-secret-please-rotate-in-prod}
+
+resilience4j:
+  circuitbreaker:
+    instances:
+      coreServiceWeb:
+        slidingWindowType: COUNT_BASED
+        slidingWindowSize: 10
+        minimumNumberOfCalls: 5
+        failureRateThreshold: 50
+        waitDurationInOpenState: 30s
+  retry:
+    instances:
+      coreServiceWeb:
+        maxAttempts: 3
+        waitDuration: 200ms
 
 management:
   endpoints:

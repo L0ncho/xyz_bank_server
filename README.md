@@ -85,8 +85,9 @@ Eso levanta:
 | data-migration | (one-shot) | Procesa los CSV y sale con código 0 |
 | config-server | 8888 | Configuración nativa (`config-repo/`) |
 | eureka-server | 8761 | Service discovery |
+| authorization-server | 9000 | Emisor OAuth2/OIDC |
 | Kafka (KRaft) | 9092 | Broker de la saga de intereses |
-| core-service | 8080 | API interna de dominio |
+| core-service | 8080, 8453 | API interna de dominio; 8453 es el conector TLS de PIN |
 | interests-service | 8084 | Cálculo/acreditación de intereses anuales |
 | bff-web | 8081 | Dashboard, historial e intereses |
 | bff-mobile | 8082 | Resumen aplanado de cuenta |

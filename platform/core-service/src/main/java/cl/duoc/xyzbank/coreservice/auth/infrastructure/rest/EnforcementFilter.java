@@ -8,6 +8,7 @@ import cl.duoc.xyzbank.coredomain.transactions.domain.entities.Transaction;
 import cl.duoc.xyzbank.coredomain.transactions.domain.repositories.TransactionRepository;
 import cl.duoc.xyzbank.coreservice.auth.infrastructure.rest.DomainEndpointOwnership.IdentifierType;
 import cl.duoc.xyzbank.coreservice.auth.infrastructure.rest.DomainEndpointOwnership.OwnershipCheck;
+import cl.duoc.xyzbank.coreservice.auth.infrastructure.rest.IssuerAccessTokenAuthenticator.Decision;
 import cl.duoc.xyzbank.sharedsecurity.callercontext.CallerContext;
 import cl.duoc.xyzbank.sharedsecurity.callercontext.CallerIdentityException;
 import cl.duoc.xyzbank.sharedsecurity.callercontext.Channel;
@@ -20,6 +21,7 @@ import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ProblemDetail;
+import org.springframework.util.AntPathMatcher;
 import org.springframework.web.filter.OncePerRequestFilter;
 import org.springframework.web.util.UriUtils;
 
@@ -43,26 +45,31 @@ public class EnforcementFilter extends OncePerRequestFilter {
     private static final String SERVICE_CREDENTIAL_HEADER = "X-Service-Credential";
     private static final String AUTHORIZATION_HEADER = "Authorization";
     private static final String BEARER_PREFIX = "Bearer ";
+    private static final String CUSTOMER_PROFILE_PATTERN = "/internal/customers/*";
 
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
+    private static final AntPathMatcher PATH_MATCHER = new AntPathMatcher();
 
     private final boolean enabled;
     private final Map<String, String> serviceCredentials;
     private final JwtCallerContextAdapter tokenAdapter;
     private final AccountRepository accountRepository;
     private final TransactionRepository transactionRepository;
+    private final IssuerAccessTokenAuthenticator issuerAccessTokenAuthenticator;
 
     public EnforcementFilter(
             boolean enabled,
             Map<String, String> serviceCredentials,
             JwtCallerContextAdapter tokenAdapter,
             AccountRepository accountRepository,
-            TransactionRepository transactionRepository) {
+            TransactionRepository transactionRepository,
+            IssuerAccessTokenAuthenticator issuerAccessTokenAuthenticator) {
         this.enabled = enabled;
         this.serviceCredentials = serviceCredentials;
         this.tokenAdapter = tokenAdapter;
         this.accountRepository = accountRepository;
         this.transactionRepository = transactionRepository;
+        this.issuerAccessTokenAuthenticator = issuerAccessTokenAuthenticator;
     }
 
     @Override
@@ -83,6 +90,14 @@ public class EnforcementFilter extends OncePerRequestFilter {
             filterChain.doFilter(request, response);
             return;
         }
+        IssuerGate issuerGate = issuerGate(request, response);
+        if (issuerGate == IssuerGate.ACCEPTED) {
+            filterChain.doFilter(request, response);
+            return;
+        }
+        if (issuerGate == IssuerGate.REJECTED) {
+            return;
+        }
         Optional<CallerContext> callerContext = resolveCallerContext(request, response);
         if (callerContext.isEmpty()) {
             return;
@@ -95,6 +110,30 @@ public class EnforcementFilter extends OncePerRequestFilter {
             return;
         }
         filterChain.doFilter(request, response);
+    }
+
+    private IssuerGate issuerGate(HttpServletRequest request, HttpServletResponse response) throws IOException {
+        if (!isCustomerProfile(request)) {
+            return IssuerGate.CONTINUE;
+        }
+        String bearerToken = extractBearerToken(request);
+        if (bearerToken == null) {
+            return IssuerGate.CONTINUE;
+        }
+        Decision decision = issuerAccessTokenAuthenticator.authenticate(bearerToken);
+        if (decision == Decision.ACCEPTED) {
+            return IssuerGate.ACCEPTED;
+        }
+        if (decision == Decision.REJECTED) {
+            reject(response, HttpStatus.UNAUTHORIZED, "A valid user token is required");
+            return IssuerGate.REJECTED;
+        }
+        return IssuerGate.CONTINUE;
+    }
+
+    private boolean isCustomerProfile(HttpServletRequest request) {
+        return "GET".equals(request.getMethod())
+                && PATH_MATCHER.match(CUSTOMER_PROFILE_PATTERN, request.getRequestURI());
     }
 
     private Optional<CallerContext> resolveCallerContext(HttpServletRequest request, HttpServletResponse response)
@@ -173,6 +212,12 @@ public class EnforcementFilter extends OncePerRequestFilter {
         response.setStatus(status.value());
         response.setContentType(MediaType.APPLICATION_PROBLEM_JSON_VALUE);
         response.getWriter().write("{\"detail\":\"" + detail + "\"}");
+    }
+
+    private enum IssuerGate {
+        ACCEPTED,
+        REJECTED,
+        CONTINUE
     }
 
     private void rejectNotFound(HttpServletRequest request, HttpServletResponse response) throws IOException {
